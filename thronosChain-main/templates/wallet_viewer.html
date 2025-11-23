@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>💼 THR Wallet Viewer</title>
+  <style>
+    body {
+      background: #000;
+      color: #0f0;
+      font-family: monospace;
+      padding: 20px;
+    }
+    nav a {
+      color: #0f0;
+      margin-right: 1em;
+      text-decoration: none;
+    }
+    input, button {
+      background: #111;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 8px;
+      margin: 10px 0;
+    }
+    button { cursor: pointer; }
+    .tx {
+      margin-top: 20px;
+      border-top: 1px dashed #0f0;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/">🏠 Home</a>
+    <a href="/pledge">🔥 Pledge</a>
+    <a href="/viewer">📦 Viewer</a>
+    <a href="/send">💸 Send</a>
+    <a href="/wallet">👛 Wallet</a>
+    <a href="/docs">📚 Docs</a>
+  </nav>
+
+  <h1>💼 THR Wallet Viewer</h1>
+  <p>Enter a THR address to view its balance and transaction history:</p>
+
+  <div>
+    <input type="text" id="thrAddress" placeholder="e.g. THR..." size="40" />
+    <button onclick="loadWallet()">🔍 View Wallet</button>
+  </div>
+
+  <h2>Balance: <span id="balance">0</span> THR</h2>
+  <div id="txHistory">No transactions yet.</div>
+
+  <script>
+    async function loadWallet() {
+      const addr = document.getElementById("thrAddress").value.trim();
+      if (!addr) {
+        alert("Please enter a THR address.");
+        return;
+      }
+      try {
+        const res = await fetch(`/wallet_data/${addr}`);
+        if (!res.ok) throw new Error("Server returned " + res.status);
+        const data = await res.json();
+        document.getElementById("balance").textContent = data.balance + " THR";
+        const div = document.getElementById("txHistory");
+        if (!data.transactions.length) {
+          div.textContent = "No transactions found.";
+        } else {
+          let html = "";
+          data.transactions.forEach(tx => {
+            html += `
+            <div class="tx">
+              <strong>${tx.timestamp}</strong><br>
+              ${tx.from ? `From: ${tx.from}<br>` : ""}
+              ${tx.to   ? `To: ${tx.to}<br>`     : ""}
+              Amount: ${tx.amount ?? tx.reward ?? 0} ${tx.amount ? "" : "THR"}<br>
+              ${tx.fee ? `Fee: ${tx.fee}` : ""}
+            </div>`;
+          });
+          div.innerHTML = html;
+        }
+      } catch (e) {
+        alert("Error loading wallet: " + e.message);
+      }
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+Flask>=2.2
+gunicorn
+requests
+fpdf
+reportlab
+pillow
+qrcode
+numpy
+matplotlib
+APScheduler
