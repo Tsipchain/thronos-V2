@@ -92,13 +92,13 @@ def viewer(): return render_template("thronos_block_viewer.html")
 @app.route("/wallet")
 def wallet_page(): return render_template("wallet_viewer.html")
 
-@app.route("/static/contracts/<path:filename>")
+@app.route("/contracts/<path:filename>")  # fixed URL path for PDF serving
 def serve_contract(filename):
     return send_from_directory(CONTRACTS_DIR, filename)
 
 @app.route("/pledge_submit", methods=["POST"])
 def pledge_submit():
-    data = request.get_json() or {}
+    data        = request.get_json() or {}
     btc_address = data.get("btc_address", "").strip()
     pledge_text = data.get("pledge_text", "").strip()
     if not btc_address:
@@ -107,7 +107,12 @@ def pledge_submit():
     pledges = load_json(PLEDGE_CHAIN, [])
     exists  = next((p for p in pledges if p["btc_address"] == btc_address), None)
     if exists:
-        return jsonify(status="already_verified", thr_address=exists["thr_address"], pledge_hash=exists["pledge_hash"], pdf_filename=f"pledge_{exists['thr_address']}.pdf"), 200
+        return jsonify(
+            status="already_verified",
+            thr_address=exists["thr_address"],
+            pledge_hash=exists["pledge_hash"],
+            pdf_filename=f"pledge_{exists['thr_address']}.pdf"
+        ), 200
 
     txns = get_btc_txns(btc_address, BTC_RECEIVER)
     logger.info("get_btc_txns for %s → %s", btc_address, txns)
@@ -117,7 +122,13 @@ def pledge_submit():
 
     thr_addr = f"THR{int(time.time()*1000)}"
     phash    = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
-    pledges.append({"btc_address": btc_address, "pledge_text": pledge_text, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()), "pledge_hash": phash, "thr_address": thr_addr})
+    pledges.append({
+        "btc_address": btc_address,
+        "pledge_text": pledge_text,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "pledge_hash": phash,
+        "thr_address": thr_addr
+    })
     save_json(PLEDGE_CHAIN, pledges)
     pdf_name = f"pledge_{thr_addr}.pdf"
     create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name)
@@ -143,6 +154,7 @@ def submit_block():
     data["reward"] = r
     data["pool_fee"] = fee
     data["reward_to_miner"] = round(r - fee, 6)
+
     pledges = load_json(PLEDGE_CHAIN, [])
     match = next((p for p in pledges if p.get("thr_address") == data["thr_address"]), None)
     if match:
@@ -151,6 +163,7 @@ def submit_block():
             "pledge_text": match.get("pledge_text"),
             "pledge_hash": match.get("pledge_hash")
         })
+
     chain.append(data)
     save_json(CHAIN_FILE, chain)
     ledger = load_json(LEDGER_FILE, {})
@@ -182,11 +195,13 @@ def send_token():
         return jsonify(error="Invalid amount"), 400
     if not frm or not to_ or amt<=0:
         return jsonify(error="Invalid input"), 400
+
     ledger = load_json(LEDGER_FILE,{})
     fee    = 0.0015
     total  = round(amt+fee,6)
     if ledger.get(frm,0.0) < total:
         return jsonify(error="Insufficient balance"), 403
+
     ledger[frm] = round(ledger.get(frm,0.0)-total,6)
     ledger[to_] = round(ledger.get(to_,0.0)+amt,6)
     save_json(LEDGER_FILE, ledger)
