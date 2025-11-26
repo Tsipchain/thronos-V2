@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 # ΠΡΟΣΑΡΜΟΣΕ ΑΥΤΗ ΤΗΝ ΔΙΕΥΘΥΝΣΗ BTC
-btc_address = "YOUR_BTC_ADDRESS_HERE"
+btc_address = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 
 # Κατώφλι μικροσυναλλαγής σε BTC
 threshold_btc = 0.001
