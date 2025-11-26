@@ -53,13 +53,11 @@ def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename):
     out = os.path.join(CONTRACTS_DIR, filename)
     c = canvas.Canvas(out, pagesize=letter)
     w, h = letter
-    # Header
     c.setFont("Helvetica-Bold", 18)
     c.drawString(1*inch, h - 1*inch, "THRONOS BLOCKCHAIN CONTRACT")
     c.setFont("Helvetica", 12)
     c.drawString(1*inch, h - 1.5*inch, f"BTC Address: {btc_addr}")
     c.drawString(1*inch, h - 1.8*inch, "Pledge Text:")
-    # Pledge body
     text = c.beginText(1*inch, h - 2.1*inch)
     text.setFont("Helvetica", 12)
     line = ""
@@ -72,7 +70,6 @@ def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename):
     if line:
         text.textLine(line)
     c.drawText(text)
-    # Generated THR
     y_offset = (len(pledge_text) // 80 + 2) * 15
     c.drawString(1*inch, h - 2.1*inch - y_offset, f"Generated THR Address: {thr_addr}")
     c.save()
@@ -122,19 +119,12 @@ def pledge_submit():
             pdf_filename=f"pledge_{exists['thr_address']}.pdf"
         ), 200
 
-    # Έλεγχος BTC πληρωμής
     txns = get_btc_txns(btc_address, BTC_RECEIVER)
     logger.info("get_btc_txns for %s → %s", btc_address, txns)
     paid = any(tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT for tx in txns)
     if not paid:
-        # Επιστρέφουμε και τα txns για debugging
-        return jsonify(
-            status="pending",
-            message="Waiting for BTC payment",
-            txns=txns
-        ), 200
+        return jsonify(status="pending", message="Waiting for BTC payment", txns=txns), 200
 
-    # Δημιουργία THR address & PDF
     thr_addr = f"THR{int(time.time()*1000)}"
     phash    = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
     pledges.append({
@@ -149,12 +139,7 @@ def pledge_submit():
     pdf_name = f"pledge_{thr_addr}.pdf"
     create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name)
 
-    return jsonify(
-        status="verified",
-        thr_address=thr_addr,
-        pledge_hash=phash,
-        pdf_filename=pdf_name
-    ), 200
+    return jsonify(status="verified", thr_address=thr_addr, pledge_hash=phash, pdf_filename=pdf_name), 200
 
 @app.route("/static/contracts/<path:filename>")
 def serve_contract(filename):
@@ -171,98 +156,54 @@ def last_block_hash():
 
 @app.route("/submit_block", methods=["POST"])
 def submit_block():
-data = request.get_json() or {}
-chain = load_json(CHAIN_FILE, [])
-h = len(chain)
-r = calculate_reward(h)
-fee = 0.005
+    data = request.get_json() or {}
+    chain = load_json(CHAIN_FILE, [])
+    h = len(chain)
+    r = calculate_reward(h)
+    fee = 0.005
 
+    data.setdefault("timestamp", time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
+    data.setdefault("block_hash", f"THR-{h}")
+    data["reward"] = r
+    data["pool_fee"] = fee
+    data["reward_to_miner"] = round(r - fee, 6)
 
-data.setdefault("timestamp", time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
-data.setdefault("block_hash", f"THR-{h}")
-data["reward"] = r
-data["pool_fee"] = fee
-data["reward_to_miner"] = round(r - fee, 6)
-
-
-# === [NEW] Match pledge info ===
-pledges = load_json(PLEDGE_CHAIN, [])
-match = next((p for p in pledges if p.get("thr_address") == data["thr_address"]), None)
-if match:
-data["miner_btc_address"] = match.get("btc_address")
-data["pledge_text"] = match.get("pledge_text")
-data["pledge_hash"] = match.get("pledge_hash")
-
-
-chain.append(data)
-save_json(CHAIN_FILE, chain)
-
-
-ledger = load_json(LEDGER_FILE, {})
-miner = data["thr_address"]
-ledger[miner] = round(ledger.get(miner, 0.0) + data["reward_to_miner"], 6)
-save_json(LEDGER_FILE, ledger)
-return jsonify(status="ok", **data), 200
-
-
-# [NEW ROUTE] Add or patch BTC address
-@app.route("/update_btc_address", methods=["POST"])
-def update_btc_address():
-    data = request.get_json()
-    thr = data.get("thr_address")
-    btc = data.get("btc_address")
     pledges = load_json(PLEDGE_CHAIN, [])
-    for p in pledges:
-        if p.get("thr_address") == thr:
-            p["btc_address"] = btc
-            save_json(PLEDGE_CHAIN, pledges)
-            return jsonify(status="updated"), 200
-    return jsonify(error="THR address not found"), 404
+    match = next((p for p in pledges if p.get("thr_address") == data["thr_address"]), None)
+    if match:
+        data["miner_btc_address"] = match.get("btc_address")
+        data["pledge_text"] = match.get("pledge_text")
+        data["pledge_hash"] = match.get("pledge_hash")
 
-
-# [NEW ROUTE] Add or patch BTC address
-@app.route("/update_btc_address", methods=["POST"])
-def update_btc_address():
-    data = request.get_json()
-    thr = data.get("thr_address")
-    btc = data.get("btc_address")
-    pledges = load_json(PLEDGE_CHAIN, [])
-    for p in pledges:
-        if p.get("thr_address") == thr:
-            p["btc_address"] = btc
-            save_json(PLEDGE_CHAIN, pledges)
-            return jsonify(status="updated"), 200
-    return jsonify(error="THR address not found"), 404
-
-
-    block = {
-        "thr_address": address,
-        "timestamp": timestamp,
-        "nonce": nonce,
-        "difficulty": difficulty,
-        "block_hash": block_hash,
-        "reward": reward,
-        "pool_fee": fee,
-        "reward_to_miner": reward_to_miner
-    }
-
-    chain.append(block)
+    chain.append(data)
     save_json(CHAIN_FILE, chain)
 
     ledger = load_json(LEDGER_FILE, {})
-    ledger[address] = round(ledger.get(address, 0.0) + reward_to_miner, 6)
+    miner = data["thr_address"]
+    ledger[miner] = round(ledger.get(miner, 0.0) + data["reward_to_miner"], 6)
     save_json(LEDGER_FILE, ledger)
 
-    return jsonify(status="ok", **block), 200
+    return jsonify(status="ok", **data), 200
 
+@app.route("/update_btc_address", methods=["POST"])
+def update_btc_address():
+    data = request.get_json()
+    thr = data.get("thr_address")
+    btc = data.get("btc_address")
+    pledges = load_json(PLEDGE_CHAIN, [])
+    for p in pledges:
+        if p.get("thr_address") == thr:
+            p["btc_address"] = btc
+            save_json(PLEDGE_CHAIN, pledges)
+            return jsonify(status="updated"), 200
+    return jsonify(error="THR address not found"), 404
 
 @app.route("/wallet_data/<thr_addr>", methods=["GET"])
 def wallet_data(thr_addr):
     ledger  = load_json(LEDGER_FILE, {})
     chain   = load_json(CHAIN_FILE, [])
     bal     = round(ledger.get(thr_addr, 0.0), 6)
-    history = [tx for tx in chain if isinstance(tx, dict)
-               and (tx.get("from") == thr_addr or tx.get("to") == thr_addr)]
+    history = [tx for tx in chain if isinstance(tx, dict) and (tx.get("from") == thr_addr or tx.get("to") == thr_addr)]
     return jsonify(balance=bal, transactions=history), 200
 
 @app.route("/wallet/<thr_addr>", methods=["GET"])
