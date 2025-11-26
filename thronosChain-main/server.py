@@ -166,23 +166,49 @@ def get_chain():
 
 @app.route("/submit_block", methods=["POST"])
 def submit_block():
-    data  = request.get_json() or {}
+    data = request.get_json() or {}
+    address = data.get("thr_address")
+    nonce = data.get("nonce")
+    difficulty = data.get("difficulty", 4)
+
+    if not address or nonce is None:
+        return jsonify(error="Missing address or nonce"), 400
+
     chain = load_json(CHAIN_FILE, [])
-    h     = len(chain)
-    r     = calculate_reward(h)
-    fee   = 0.005
-    data.setdefault("timestamp",     time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
-    data.setdefault("block_hash",    f"THR-{h}")
-    data["reward"]          = r
-    data["pool_fee"]        = fee
-    data["reward_to_miner"] = round(r - fee, 6)
-    chain.append(data)
+    prev_hash = chain[-1]['block_hash'] if chain else '0' * 64
+    timestamp = data.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+
+    reward = calculate_reward(len(chain))
+    fee = 0.005
+    reward_to_miner = round(reward - fee, 6)
+
+    # Hash for PoW validation
+    block_str = f"{prev_hash}{address}{reward}{timestamp}{nonce}"
+    block_hash = hashlib.sha256(block_str.encode()).hexdigest()
+
+    if not block_hash.startswith('0' * difficulty):
+        return jsonify(error="Invalid PoW hash", block_hash=block_hash), 400
+
+    block = {
+        "thr_address": address,
+        "timestamp": timestamp,
+        "nonce": nonce,
+        "difficulty": difficulty,
+        "block_hash": block_hash,
+        "reward": reward,
+        "pool_fee": fee,
+        "reward_to_miner": reward_to_miner
+    }
+
+    chain.append(block)
     save_json(CHAIN_FILE, chain)
+
     ledger = load_json(LEDGER_FILE, {})
-    miner = data["thr_address"]
-    ledger[miner] = round(ledger.get(miner,0.0) + data["reward_to_miner"], 6)
+    ledger[address] = round(ledger.get(address, 0.0) + reward_to_miner, 6)
     save_json(LEDGER_FILE, ledger)
-    return jsonify(status="ok", **data), 200
+
+    return jsonify(status="ok", **block), 200
+
 
 @app.route("/wallet_data/<thr_addr>", methods=["GET"])
 def wallet_data(thr_addr):
