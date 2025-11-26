@@ -223,16 +223,17 @@ def update_btc_address():
 # [NEW ROUTE] Add or patch BTC address
 @app.route("/update_btc_address", methods=["POST"])
 def update_btc_address():
-data = request.get_json()
-thr = data.get("thr_address")
-btc = data.get("btc_address")
-pledges = load_json(PLEDGE_CHAIN, [])
-for p in pledges:
-if p.get("thr_address") == thr:
-p["btc_address"] = btc
-save_json(PLEDGE_CHAIN, pledges)
-return jsonify(status="updated"), 200
-return jsonify(error="THR address not found"), 404
+    data = request.get_json()
+    thr = data.get("thr_address")
+    btc = data.get("btc_address")
+    pledges = load_json(PLEDGE_CHAIN, [])
+    for p in pledges:
+        if p.get("thr_address") == thr:
+            p["btc_address"] = btc
+            save_json(PLEDGE_CHAIN, pledges)
+            return jsonify(status="updated"), 200
+    return jsonify(error="THR address not found"), 404
+
 
     block = {
         "thr_address": address,
