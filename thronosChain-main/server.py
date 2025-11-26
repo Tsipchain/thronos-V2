@@ -25,8 +25,6 @@ PLEDGE_CHAIN  = os.path.join(STATIC_DIR, "pledge_chain.json")
 BTC_RECEIVER  = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 MIN_AMOUNT    = 0.00001
 CONTRACTS_DIR = os.path.join(STATIC_DIR, "contracts")
-WHITELIST     = {"148t6A1xesYtCkXteMktjyTD7ojDWFikPY"}
-
 os.makedirs(CONTRACTS_DIR, exist_ok=True)
 
 # ─── LOGGER ─────────────────────────────────────────
@@ -100,7 +98,7 @@ def serve_contract(filename):
 
 @app.route("/pledge_submit", methods=["POST"])
 def pledge_submit():
-    data        = request.get_json() or {}
+    data = request.get_json() or {}
     btc_address = data.get("btc_address", "").strip()
     pledge_text = data.get("pledge_text", "").strip()
     if not btc_address:
@@ -111,22 +109,11 @@ def pledge_submit():
     if exists:
         return jsonify(status="already_verified", thr_address=exists["thr_address"], pledge_hash=exists["pledge_hash"], pdf_filename=f"pledge_{exists['thr_address']}.pdf"), 200
 
-    txns = []
-    paid = btc_address in WHITELIST or any(
-        tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT
-        for tx in get_btc_txns(btc_address, BTC_RECEIVER)
-    )
+    txns = get_btc_txns(btc_address, BTC_RECEIVER)
+    logger.info("get_btc_txns for %s → %s", btc_address, txns)
+    paid = any(tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT for tx in txns)
     if not paid:
         return jsonify(status="pending", message="Waiting for BTC payment", txns=txns), 200
-
-    thr_addr = f"THR{int(time.time()*1000)}"
-    phash    = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
-    pledges.append({"btc_address": btc_address, "pledge_text": pledge_text, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()), "pledge_hash": phash, "thr_address": thr_addr})
-    save_json(PLEDGE_CHAIN, pledges)
-    pdf_name = f"pledge_{thr_addr}.pdf"
-    create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name)
-    return jsonify(status="verified", thr_address=thr_addr, pledge_hash=phash, pdf_filename=pdf_name), 200
-
 
     thr_addr = f"THR{int(time.time()*1000)}"
     phash    = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
@@ -171,19 +158,6 @@ def submit_block():
     ledger[miner] = round(ledger.get(miner, 0.0) + data["reward_to_miner"], 6)
     save_json(LEDGER_FILE, ledger)
     return jsonify(status="ok", **data), 200
-
-@app.route("/update_btc_address", methods=["POST"])
-def update_btc_address():
-    data = request.get_json()
-    thr = data.get("thr_address")
-    btc = data.get("btc_address")
-    pledges = load_json(PLEDGE_CHAIN, [])
-    for p in pledges:
-        if p.get("thr_address") == thr:
-            p["btc_address"] = btc
-            save_json(PLEDGE_CHAIN, pledges)
-            return jsonify(status="updated"), 200
-    return jsonify(error="THR address not found"), 404
 
 @app.route("/wallet_data/<thr_addr>")
 def wallet_data(thr_addr):
