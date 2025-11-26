@@ -171,28 +171,53 @@ def last_block_hash():
 
 @app.route("/submit_block", methods=["POST"])
 def submit_block():
-    data = request.get_json() or {}
-    address = data.get("thr_address")
-    nonce = data.get("nonce")
-    difficulty = data.get("difficulty", 4)
+data = request.get_json() or {}
+chain = load_json(CHAIN_FILE, [])
+h = len(chain)
+r = calculate_reward(h)
+fee = 0.005
 
-    if not address or nonce is None:
-        return jsonify(error="Missing address or nonce"), 400
 
-    chain = load_json(CHAIN_FILE, [])
-    prev_hash = chain[-1]['block_hash'] if chain else '0' * 64
-    timestamp = data.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+data.setdefault("timestamp", time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
+data.setdefault("block_hash", f"THR-{h}")
+data["reward"] = r
+data["pool_fee"] = fee
+data["reward_to_miner"] = round(r - fee, 6)
 
-    reward = calculate_reward(len(chain))
-    fee = 0.005
-    reward_to_miner = round(reward - fee, 6)
 
-    # Hash for PoW validation
-    block_str = f"{prev_hash}{address}{reward}{timestamp}{nonce}"
-    block_hash = hashlib.sha256(block_str.encode()).hexdigest()
+# === [NEW] Match pledge info ===
+pledges = load_json(PLEDGE_CHAIN, [])
+match = next((p for p in pledges if p.get("thr_address") == data["thr_address"]), None)
+if match:
+data["miner_btc_address"] = match.get("btc_address")
+data["pledge_text"] = match.get("pledge_text")
+data["pledge_hash"] = match.get("pledge_hash")
 
-    if not block_hash.startswith('0' * difficulty):
-        return jsonify(error="Invalid PoW hash", block_hash=block_hash), 400
+
+chain.append(data)
+save_json(CHAIN_FILE, chain)
+
+
+ledger = load_json(LEDGER_FILE, {})
+miner = data["thr_address"]
+ledger[miner] = round(ledger.get(miner, 0.0) + data["reward_to_miner"], 6)
+save_json(LEDGER_FILE, ledger)
+return jsonify(status="ok", **data), 200
+
+
+# [NEW ROUTE] Add or patch BTC address
+@app.route("/update_btc_address", methods=["POST"])
+def update_btc_address():
+data = request.get_json()
+thr = data.get("thr_address")
+btc = data.get("btc_address")
+pledges = load_json(PLEDGE_CHAIN, [])
+for p in pledges:
+if p.get("thr_address") == thr:
+p["btc_address"] = btc
+save_json(PLEDGE_CHAIN, pledges)
+return jsonify(status="updated"), 200
+return jsonify(error="THR address not found"), 404
 
     block = {
         "thr_address": address,
