@@ -16,24 +16,19 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# ─── CONFIG ────────────────────────────────────────
 LEDGER_FILE   = "ledger.json"
 CHAIN_FILE    = "phantom_tx_chain.json"
 PLEDGE_CHAIN  = "pledge_chain.json"
 BTC_RECEIVER  = "1FQov4P8yzUU1Af4C5QNyAfQauc4maytKo"
-MIN_AMOUNT    = 0.00001  # ελάχιστο BTC για επαλήθευση
+MIN_AMOUNT    = 0.00001
 
 app = Flask(__name__)
-
-# Logger setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pledge")
 
-# όπου αποθηκεύονται τα PDF
 CONTRACTS_DIR = os.path.join(app.root_path, "static", "contracts")
 os.makedirs(CONTRACTS_DIR, exist_ok=True)
 
-# ─── HELPERS ───────────────────────────────────────
 def load_json(path, default):
     try:
         with open(path, "r") as f:
@@ -75,7 +70,6 @@ def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename):
     c.save()
     return out
 
-# ─── FLASK ROUTES ─────────────────────────────────
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -102,44 +96,36 @@ def wallet_page():
 
 @app.route("/pledge_submit", methods=["POST"])
 def pledge_submit():
-    data        = request.get_json() or {}
+    data = request.get_json() or {}
     btc_address = data.get("btc_address", "").strip()
     pledge_text = data.get("pledge_text", "").strip()
-
     if not btc_address:
         return jsonify(error="Missing BTC address"), 400
-
     pledges = load_json(PLEDGE_CHAIN, [])
-    exists  = next((p for p in pledges if p["btc_address"] == btc_address), None)
+    exists = next((p for p in pledges if p["btc_address"] == btc_address), None)
     if exists:
-        return jsonify(
-            status="already_verified",
-            thr_address=exists["thr_address"],
-            pledge_hash=exists["pledge_hash"],
-            pdf_filename=f"pledge_{exists['thr_address']}.pdf"
-        ), 200
-
+        return jsonify(status="already_verified", thr_address=exists["thr_address"],
+                       pledge_hash=exists["pledge_hash"],
+                       pdf_filename=f"pledge_{exists['thr_address']}.pdf"), 200
     txns = get_btc_txns(btc_address, BTC_RECEIVER)
     logger.info("get_btc_txns for %s → %s", btc_address, txns)
     paid = any(tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT for tx in txns)
     if not paid:
         return jsonify(status="pending", message="Waiting for BTC payment", txns=txns), 200
-
     thr_addr = f"THR{int(time.time()*1000)}"
-    phash    = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
+    phash = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
     pledges.append({
         "btc_address": btc_address,
-        "pledge_text":  pledge_text,
-        "timestamp":    time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-        "pledge_hash":  phash,
-        "thr_address":  thr_addr
+        "pledge_text": pledge_text,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "pledge_hash": phash,
+        "thr_address": thr_addr
     })
     save_json(PLEDGE_CHAIN, pledges)
-
     pdf_name = f"pledge_{thr_addr}.pdf"
     create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name)
-
-    return jsonify(status="verified", thr_address=thr_addr, pledge_hash=phash, pdf_filename=pdf_name), 200
+    return jsonify(status="verified", thr_address=thr_addr, pledge_hash=phash,
+                   pdf_filename=pdf_name), 200
 
 @app.route("/static/contracts/<path:filename>")
 def serve_contract(filename):
@@ -200,9 +186,9 @@ def update_btc_address():
 
 @app.route("/wallet_data/<thr_addr>", methods=["GET"])
 def wallet_data(thr_addr):
-    ledger  = load_json(LEDGER_FILE, {})
-    chain   = load_json(CHAIN_FILE, [])
-    bal     = round(ledger.get(thr_addr, 0.0), 6)
+    ledger = load_json(LEDGER_FILE, {})
+    chain = load_json(CHAIN_FILE, [])
+    bal = round(ledger.get(thr_addr, 0.0), 6)
     history = [tx for tx in chain if isinstance(tx, dict) and (tx.get("from") == thr_addr or tx.get("to") == thr_addr)]
     return jsonify(balance=bal, transactions=history), 200
 
@@ -213,21 +199,21 @@ def wallet_redirect(thr_addr):
 @app.route("/send_token", methods=["POST"])
 def send_token():
     data = request.get_json() or {}
-    frm  = data.get("from","").strip()
-    to_  = data.get("to","").strip()
+    frm = data.get("from", "").strip()
+    to_ = data.get("to", "").strip()
     try:
-        amt = round(float(data.get("amount",0)),6)
+        amt = round(float(data.get("amount", 0)), 6)
     except:
         return jsonify(error="Invalid amount"), 400
-    if not frm or not to_ or amt<=0:
+    if not frm or not to_ or amt <= 0:
         return jsonify(error="Invalid input"), 400
-    ledger = load_json(LEDGER_FILE,{})
-    fee    = 0.0015
-    total  = round(amt+fee,6)
-    if ledger.get(frm,0.0) < total:
+    ledger = load_json(LEDGER_FILE, {})
+    fee = 0.0015
+    total = round(amt + fee, 6)
+    if ledger.get(frm, 0.0) < total:
         return jsonify(error="Insufficient balance"), 403
-    ledger[frm] = round(ledger.get(frm,0.0)-total,6)
-    ledger[to_] = round(ledger.get(to_,0.0)+amt,6)
+    ledger[frm] = round(ledger.get(frm, 0.0) - total, 6)
+    ledger[to_] = round(ledger.get(to_, 0.0) + amt, 6)
     save_json(LEDGER_FILE, ledger)
     tx = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
@@ -238,32 +224,28 @@ def send_token():
     save_json(CHAIN_FILE, chain)
     return jsonify(status="OK", tx=tx), 200
 
-# ─── BACKGROUND MINING FOR FIRST BLOCKS ─────────────
 def mint_first_blocks():
     pledges = load_json(PLEDGE_CHAIN, [])
-    chain   = load_json(CHAIN_FILE, [])
-    seen    = {b.get("thr_address") for b in chain if isinstance(b, dict) and b.get("thr_address")}
-    height  = len(chain)
+    chain = load_json(CHAIN_FILE, [])
+    seen = {b.get("thr_address") for b in chain if isinstance(b, dict) and b.get("thr_address")}
+    height = len(chain)
     for p in pledges:
         thr = p["thr_address"]
         if thr in seen:
             continue
-        r   = calculate_reward(height)
+        r = calculate_reward(height)
         fee = 0.005
         to_miner = round(r - fee, 6)
         block = {
-            "thr_address":     thr,
-            "timestamp":       time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            "block_hash":      f"THR-{height}",
-            "reward":          r,
-            "pool_fee":        fee,
+            "thr_address": thr,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "block_hash": f"THR-{height}",
+            "reward": r,
+            "pool_fee": fee,
             "reward_to_miner": to_miner
         }
         try:
-            requests.post(
-                f"http://localhost:{os.getenv('PORT',8000)}/submit_block",
-                json=block, timeout=5
-            ).raise_for_status()
+            requests.post(f"http://localhost:{os.getenv('PORT', 8000)}/submit_block", json=block, timeout=5).raise_for_status()
             chain = load_json(CHAIN_FILE, [])
             height = len(chain)
             seen.add(thr)
