@@ -6,7 +6,7 @@ from dynamic_thr_fee import calculate_dynamic_fee  # Importing dynamic fee calcu
 
 
 CHAIN_FILE = "phantom_tx_chain.json"
-BTC_RECEIVER = "1FQov4P8yzUU1Af4C5QNyAfQauc4maytKo"
+BTC_RECEIVER = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 CONTRACTS_DIR = "templates/contracts"
 
 os.makedirs(CONTRACTS_DIR, exist_ok=True)
