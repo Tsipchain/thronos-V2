@@ -22,3 +22,4 @@ python server.py
 
 echo "=== Shutting down background services ==="
 kill $STRATUM_PID $MINER_PID || true
+mkdir -p /static/contracts
