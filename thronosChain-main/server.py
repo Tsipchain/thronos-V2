@@ -92,7 +92,7 @@ def viewer(): return render_template("thronos_block_viewer.html")
 @app.route("/wallet")
 def wallet_page(): return render_template("wallet_viewer.html")
 
-@app.route("/contracts/<path:filename>")  # fixed URL path for PDF serving
+@app.route("/contracts/<path:filename>")
 def serve_contract(filename):
     return send_from_directory(CONTRACTS_DIR, filename)
 
