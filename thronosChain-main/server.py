@@ -50,7 +50,7 @@ def calculate_reward(height: int) -> float:
     halvings = height // 210000
     return round(1.0 / (2 ** halvings), 6)
 
-def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename, valuation=None):
+def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename):
     out = os.path.join(CONTRACTS_DIR, filename)
     c = canvas.Canvas(out, pagesize=letter)
     w, h = letter
@@ -73,15 +73,8 @@ def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename, valuation=Non
     c.drawText(text)
     y_offset = (len(pledge_text) // 80 + 2) * 15
     c.drawString(1*inch, h - 2.1*inch - y_offset, f"Generated THR Address: {thr_addr}")
-    if valuation:
-        c.drawString(1*inch, h - 2.1*inch - y_offset - 30, f"THR Initial Value: {valuation} BTC")
     c.save()
     return out
-
-# ─── DYNAMIC TOKEN PRICE (optional) ────────────────
-def get_thr_price_in_btc():
-    # Placeholder dynamic price logic or external feed
-    return round(0.000023, 8)  # Example static for now
 
 # ─── ROUTES ─────────────────────────────────────────
 @app.route("/")
@@ -90,6 +83,10 @@ def home(): return render_template("index.html")
 @app.route("/contracts/<path:filename>")
 def serve_contract(filename):
     return send_from_directory(CONTRACTS_DIR, filename)
+
+@app.route("/pledge")
+def pledge_form():
+    return render_template("pledge_form.html")
 
 @app.route("/pledge_submit", methods=["POST"])
 def pledge_submit():
@@ -111,12 +108,17 @@ def pledge_submit():
 
     thr_addr = f"THR{int(time.time()*1000)}"
     phash = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
-    valuation = get_thr_price_in_btc()
     pledges.append({"btc_address": btc_address, "pledge_text": pledge_text, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()), "pledge_hash": phash, "thr_address": thr_addr})
     save_json(PLEDGE_CHAIN, pledges)
     pdf_name = f"pledge_{thr_addr}.pdf"
-    create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name, valuation=valuation)
+    create_pdf_contract(btc_address, pledge_text, thr_addr, pdf_name)
     return jsonify(status="verified", thr_address=thr_addr, pledge_hash=phash, pdf_filename=pdf_name), 200
+
+@app.route("/viewer")
+def viewer(): return render_template("thronos_block_viewer.html")
+
+@app.route("/chain")
+def get_chain(): return jsonify(load_json(CHAIN_FILE, [])), 200
 
 @app.route("/last_block_hash")
 def last_block_hash():
@@ -153,17 +155,32 @@ def submit_block():
     save_json(LEDGER_FILE, ledger)
     return jsonify(status="ok", **data), 200
 
+@app.route("/wallet")
+def wallet_page(): return render_template("wallet_viewer.html")
+
+@app.route("/wallet_data/<thr_addr>")
+def wallet_data(thr_addr):
+    ledger  = load_json(LEDGER_FILE, {})
+    chain   = load_json(CHAIN_FILE, [])
+    bal     = round(ledger.get(thr_addr, 0.0), 6)
+    history = [tx for tx in chain if isinstance(tx, dict) and (tx.get("from") == thr_addr or tx.get("to") == thr_addr)]
+    return jsonify(balance=bal, transactions=history), 200
+
+@app.route("/wallet/<thr_addr>")
+def wallet_redirect(thr_addr):
+    return redirect(url_for("wallet_data", thr_addr=thr_addr)), 302
+
 # ─── BACKGROUND ────────────────────────────────────
 def mint_first_blocks():
     pledges = load_json(PLEDGE_CHAIN, [])
-    chain = load_json(CHAIN_FILE, [])
-    seen = {b.get("thr_address") for b in chain if isinstance(b, dict) and b.get("thr_address")}
-    height = len(chain)
+    chain   = load_json(CHAIN_FILE, [])
+    seen    = {b.get("thr_address") for b in chain if isinstance(b, dict) and b.get("thr_address")}
+    height  = len(chain)
     for p in pledges:
         thr = p["thr_address"]
         if thr in seen:
             continue
-        r = calculate_reward(height)
+        r   = calculate_reward(height)
         fee = 0.005
         to_miner = round(r - fee, 6)
         block = {
@@ -175,7 +192,7 @@ def mint_first_blocks():
             "reward_to_miner": to_miner
         }
         try:
-            requests.post(f"http://localhost:{os.getenv('PORT',8000)}/submit_block", json=block, timeout=5).raise_for_status()
+            requests.post(f"http://localhost:{os.getenv('PORT',3333)}/submit_block", json=block, timeout=5).raise_for_status()
             chain = load_json(CHAIN_FILE, [])
             height = len(chain)
             seen.add(thr)
@@ -189,4 +206,4 @@ scheduler.start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 3333))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port)
