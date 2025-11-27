@@ -1,13 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
-
-#!/usr/bin/env bash
-set -e
-
-# This start script runs the Stratum engine, a simple microminer
-# demonstration and the main Flask application.  It is designed for
-# deployment on platforms such as Railway.  When the Flask app exits,
-# the background processes are cleaned up.
+mkdir -p /data/contracts
 
 echo "=== Starting Stratum engine on TCP port 3333 ==="
 python stratum_engine.py &
@@ -22,4 +15,5 @@ python server.py
 
 echo "=== Shutting down background services ==="
 kill $STRATUM_PID $MINER_PID || true
-mkdir -p /static/contracts
+
+
