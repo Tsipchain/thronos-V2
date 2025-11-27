@@ -16,22 +16,23 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# ─── CONFIG ────────────────────────────────────────
+# ─── CONFIG ───
 app = Flask(__name__)
 STATIC_DIR    = os.path.join(app.root_path, "static")
-LEDGER_FILE   = os.path.join(STATIC_DIR, "ledger.json")
-CHAIN_FILE    = os.path.join(STATIC_DIR, "phantom_tx_chain.json")
-PLEDGE_CHAIN  = os.path.join(STATIC_DIR, "pledge_chain.json")
+DATA_DIR      = os.path.join(app.root_path, "data")
+LEDGER_FILE   = os.path.join(DATA_DIR, "ledger.json")
+CHAIN_FILE    = os.path.join(DATA_DIR, "phantom_tx_chain.json")
+PLEDGE_CHAIN  = os.path.join(DATA_DIR, "pledge_chain.json")
 BTC_RECEIVER  = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 MIN_AMOUNT    = 0.00001
 CONTRACTS_DIR = os.path.join(STATIC_DIR, "contracts")
 os.makedirs(CONTRACTS_DIR, exist_ok=True)
 
-# ─── LOGGER ─────────────────────────────────────────
+# ─── LOGGER ───
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pledge")
 
-# ─── HELPERS ───────────────────────────────────────
+# ─── HELPERS ───
 def load_json(path, default):
     try:
         with open(path, "r") as f:
@@ -73,7 +74,7 @@ def create_pdf_contract(btc_addr, pledge_text, thr_addr, filename):
     c.save()
     return out
 
-# ─── ROUTES ─────────────────────────────────────────
+# ─── ROUTES ───
 @app.route("/")
 def home(): return render_template("index.html")
 
@@ -214,7 +215,7 @@ def send_token():
     save_json(CHAIN_FILE, chain)
     return jsonify(status="OK", tx=tx), 200
 
-# ─── BACKGROUND ────────────────────────────────────
+# ─── BACKGROUND ───
 def mint_first_blocks():
     pledges = load_json(PLEDGE_CHAIN, [])
     chain   = load_json(CHAIN_FILE, [])
