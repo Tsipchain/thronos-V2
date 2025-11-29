@@ -1,81 +1,180 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>💸 Send THR Tokens</title>
+  <meta charset="UTF-8">
+  <title>🔥 Thronos – Send THR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       background: #000;
-      color: #0f0;
-      font-family: monospace;
-      padding: 20px;
+      color: #00ff66;
+      font-family: "Courier New", monospace;
     }
-    input, button {
-      background: #111;
-      color: #0f0;
-      border: 1px solid #0f0;
-      padding: 10px;
-      margin: 10px 0;
+    a { color: #00ff66; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .nav {
+      border-bottom: 1px solid #00ff66;
+      padding: 8px 16px;
+      margin-bottom: 24px;
+    }
+    .nav a {
+      margin-right: 16px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 16px;
+      border: 1px dashed #00ff66;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    label {
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+    input {
       width: 100%;
+      padding: 6px 8px;
+      background: #000;
+      border: 1px solid #00ff66;
+      color: #00ff66;
+      font-family: inherit;
+    }
+    button {
+      margin-top: 16px;
+      padding: 8px 16px;
+      background: #00ff66;
+      color: #000;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #00cc55;
+    }
+    .row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .col {
+      flex: 1 1 260px;
+    }
+    pre {
+      background: #050505;
+      border: 1px solid #00ff66;
+      padding: 8px;
+      max-height: 260px;
+      overflow: auto;
+      font-size: 12px;
+    }
+    .small-note {
+      font-size: 11px;
+      color: #cccccc;
     }
   </style>
 </head>
 <body>
 
-<div style="background:#000;padding:10px;border-bottom:1px solid #0f0;text-align:center;">
-  <a href="/" style="color:#0f0;margin:10px;">🏠 Home</a>
-  <a href="/pledge" style="color:#0f0;margin:10px;">🔥 Pledge</a>
-  <a href="/viewer" style="color:#0f0;margin:10px;">📦 Viewer</a>
-  <a href="/send" style="color:#0f0;margin:10px;">💸 Send</a>
-  <a href="/wallet" style="color:#0f0;margin:10px;">👛 Wallet</a>
-  <a href="/docs" style="color:#0f0;margin:10px;">📚 Docs</a>
+<div class="nav">
+  <a href="{{ url_for('home') }}">🏠 Home</a>
+  <a href="{{ url_for('pledge_form') }}">🔥 Pledge</a>
+  <a href="{{ url_for('viewer') }}">🧱 Viewer</a>
+  <a href="{{ url_for('wallet_page') }}">💰 Wallet</a>
+  <a href="{{ url_for('send_page') }}">📤 Send</a>
 </div>
 
+<div class="container">
+  <h1>📤 Send THR</h1>
 
-<h1>💸 Send THR</h1>
-<p>Enter the sender address, recipient, and amount:</p>
+  <div class="row">
+    <div class="col">
+      <label for="from_thr">From THR Address</label>
+      <input id="from_thr" placeholder="π.χ. THR1764..." />
 
-<form id="sendForm">
-  <label>Sender THR Address:</label>
-  <input type="text" id="from" placeholder="e.g. THR5110..." required>
+      <label for="to_thr">To THR Address</label>
+      <input id="to_thr" placeholder="Recipient THR address" />
 
-  <label>Recipient THR Address:</label>
-  <input type="text" id="to" placeholder="e.g. THR..." required>
+      <label for="amount">Amount (THR)</label>
+      <input id="amount" type="number" step="0.000001" min="0" value="0.1" />
 
-  <label>Amount (THR):</label>
-  <input type="number" id="amount" step="0.0001" required>
+      <label for="auth_secret">
+        Send Secret (auth_secret)
+      </label>
+      <input id="auth_secret"
+             placeholder="Μυστικό που πήρες με το Pledge (send_secret)" />
 
-  <button type="submit">Send Tokens</button>
-</form>
+      <div class="small-note">
+        * Fee: {{ "%.4f"|format(0.0015) }} THR καίγεται σε κάθε αποστολή.
+      </div>
 
-<pre id="response"></pre>
+      <button onclick="doSend()">Send THR</button>
+      <button onclick="loadBalance()">Load Balance</button>
+    </div>
+
+    <div class="col">
+      <label>Balance & History (JSON)</label>
+      <pre id="walletBox">{}</pre>
+
+      <label>Send Result</label>
+      <pre id="sendResult">{}</pre>
+    </div>
+  </div>
+</div>
 
 <script>
-document.getElementById("sendForm").addEventListener("submit", async function(e) {
-  e.preventDefault();
-  const from = document.getElementById("from").value.trim();
-  const to = document.getElementById("to").value.trim();
-  const amount = parseFloat(document.getElementById("amount").value);
+async function loadBalance() {
+  const thr = document.getElementById('from_thr').value.trim();
+  if (!thr) {
+    alert('Βάλε THR address πρώτα');
+    return;
+  }
+  try {
+    const res = await fetch(`/wallet_data/${encodeURIComponent(thr)}`);
+    const data = await res.json();
+    document.getElementById('walletBox').textContent =
+      JSON.stringify(data, null, 2);
+  } catch (e) {
+    document.getElementById('walletBox').textContent =
+      'Error loading wallet: ' + e;
+  }
+}
+
+async function doSend() {
+  const from_thr    = document.getElementById('from_thr').value.trim();
+  const to_thr      = document.getElementById('to_thr').value.trim();
+  const amount      = document.getElementById('amount').value;
+  const auth_secret = document.getElementById('auth_secret').value.trim();
+
+  if (!from_thr || !to_thr) {
+    alert('Συμπλήρωσε FROM και TO THR address');
+    return;
+  }
+  if (!auth_secret) {
+    alert('Χρειάζεται το send_secret που πήρες με το Pledge');
+    return;
+  }
 
   try {
-    const res = await fetch("/send_token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ from, to, amount })
+    const res = await fetch('/send_thr', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ from_thr, to_thr, amount, auth_secret })
     });
-
     const data = await res.json();
-    if (res.ok) {
-      document.getElementById("response").textContent = `✅ Transaction sent:\n${JSON.stringify(data, null, 2)}`;
-    } else {
-      document.getElementById("response").textContent = `❌ Error: ${data.error || "Unknown error"}`;
-    }
-  } catch (err) {
-    document.getElementById("response").textContent = `❌ Request failed: ${err}`;
+    document.getElementById('sendResult').textContent =
+      JSON.stringify(data, null, 2);
+
+    // Refresh balance μετά το send
+    loadBalance();
+  } catch (e) {
+    document.getElementById('sendResult').textContent =
+      'Error sending: ' + e;
   }
-});
+}
 </script>
 
 </body>
