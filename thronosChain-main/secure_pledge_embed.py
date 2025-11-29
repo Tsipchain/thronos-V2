@@ -9,7 +9,6 @@ from fpdf import FPDF
 from Cryptodome.Cipher import AES
 from Cryptodome.Random import get_random_bytes
 
-
 # Configuration
 CONTRACTS_DIR = "static/contracts"
 SECRET_KEY = hashlib.sha256(b"thronos_super_secret_key").digest()[:16]  # 128-bit AES key
