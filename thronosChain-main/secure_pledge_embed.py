@@ -6,7 +6,7 @@ import qrcode
 import time
 from PIL import Image
 from fpdf import FPDF
-from Crypto.Cipher import AES
+from Cryptodome.Cipher import AES
 from Crypto.Random import get_random_bytes
 
 # Configuration
