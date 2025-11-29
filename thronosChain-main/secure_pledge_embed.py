@@ -13,8 +13,9 @@ import time
 import hashlib
 from pathlib import Path
 
-from Crypto.Cipher import AES
-from Crypto.Random import get_random_bytes
+from Cryptodome.Cipher import AES
+from Cryptodome.Random import get_random_bytes
+
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
