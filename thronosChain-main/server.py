@@ -5,7 +5,7 @@
 # - data volume (/app/data)
 # - whitelist για free pledges
 # - ασφαλές THR send με auth_secret ανά THR address
-# - auto-rebuild των pledge PDFs μετά από redeploy
+# - migration για ήδη υπάρχοντα pledges -> send_seed / send_auth_hash
 
 import os
 import json
@@ -18,7 +18,7 @@ import requests
 from flask import (
     Flask, request, jsonify,
     render_template, send_from_directory,
-    redirect, url_for, abort,   # abort για 404
+    redirect, url_for
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -46,7 +46,9 @@ ADMIN_SECRET   = os.getenv("ADMIN_SECRET", "CHANGE_ME_NOW")
 BTC_RECEIVER  = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 MIN_AMOUNT    = 0.00001
 
-CONTRACTS_DIR = os.path.join(STATIC_DIR, "contracts")
+# ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ: Τα contracts πλέον ζουν στο DATA_DIR (volume),
+# όχι στο static, για να ΜΗΝ χάνονται σε redeploy.
+CONTRACTS_DIR = os.path.join(DATA_DIR, "contracts")
 os.makedirs(CONTRACTS_DIR, exist_ok=True)
 
 SEND_FEE = 0.0015  # THR fee που καίγεται σε κάθε send
@@ -83,44 +85,8 @@ def home():
 
 @app.route("/contracts/<path:filename>")
 def serve_contract(filename):
-    """
-    Σερβίρει συμβόλαια. Αν το PDF λείπει (μετά από redeploy),
-    προσπαθεί να το ξαναδημιουργήσει από το pledge_chain.json.
-    """
-    full_path = os.path.join(CONTRACTS_DIR, filename)
-
-    # Αν υπάρχει ήδη, απλά το σερβίρουμε
-    if os.path.exists(full_path):
-        return send_from_directory(CONTRACTS_DIR, filename)
-
-    # Auto-rebuild μόνο για pledge_*.pdf
-    if filename.startswith("pledge_") and filename.endswith(".pdf"):
-        thr_addr = filename[len("pledge_"):-4]  # π.χ. THR1764...
-
-        pledges = load_json(PLEDGE_CHAIN, [])
-        pledge = next(
-            (p for p in pledges if p.get("thr_address") == thr_addr),
-            None
-        )
-
-        if pledge:
-            chain = load_json(CHAIN_FILE, [])
-            height = len(chain)
-
-            # Ξαναδημιουργία secure PDF με τα δεδομένα του pledge
-            create_secure_pdf_contract(
-                btc_address=pledge["btc_address"],
-                pledge_text=pledge["pledge_text"],
-                thr_address=pledge["thr_address"],
-                pledge_hash=pledge["pledge_hash"],
-                height=height,
-            )
-
-            if os.path.exists(full_path):
-                return send_from_directory(CONTRACTS_DIR, filename)
-
-    # Αν δεν βρέθηκε / δεν δημιουργήθηκε
-    return abort(404)
+    # Σερβίρει PDF + PNG από data/contracts (volume)
+    return send_from_directory(CONTRACTS_DIR, filename)
 
 
 @app.route("/viewer")
@@ -135,7 +101,6 @@ def wallet_page():
 
 @app.route("/send")
 def send_page():
-    # Χρειάζεται templates/send.html
     return render_template("send.html")
 
 
@@ -157,12 +122,13 @@ def pledge_submit():
     pledges = load_json(PLEDGE_CHAIN, [])
     exists = next((p for p in pledges if p["btc_address"] == btc_address), None)
     if exists:
+        # Ήδη υπάρχει pledge για αυτό το BTC.
         return jsonify(
             status="already_verified",
             thr_address=exists["thr_address"],
             pledge_hash=exists["pledge_hash"],
-            pdf_filename=f"pledge_{exists['thr_address']}.pdf",
-            # εδώ δεν ξαναδίνουμε send_secret – μόνο στο πρώτο pledge
+            pdf_filename=exists.get("pdf_filename", f"pledge_{exists['thr_address']}.pdf"),
+            # send_secret ΔΕΝ το ξαναδίνουμε εδώ
         ), 200
 
     # --- BTC verification ή free mode με whitelist ---
@@ -190,18 +156,25 @@ def pledge_submit():
     thr_addr = f"THR{int(time.time() * 1000)}"
     phash = hashlib.sha256((btc_address + pledge_text).encode()).hexdigest()
 
-    # Send auth secret (shared secret για ασφαλές /send_thr)
-    send_secret = secrets.token_hex(16)  # 32 hex chars
-    send_auth_hash = hashlib.sha256(send_secret.encode()).hexdigest()
+    # Send seed & auth: πλήρως self-sovereign
+    send_seed      = secrets.token_hex(16)  # Μικρό "seed phrase"
+    send_seed_hash = hashlib.sha256(send_seed.encode()).hexdigest()
+    send_auth_hash = hashlib.sha256(
+        f"{send_seed}:auth".encode()
+    ).hexdigest()
 
-    pledges.append({
+    # Αποθήκευση pledge
+    pledge_entry = {
         "btc_address": btc_address,
         "pledge_text": pledge_text,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         "pledge_hash": phash,
         "thr_address": thr_addr,
+        "send_seed_hash": send_seed_hash,
         "send_auth_hash": send_auth_hash,
-    })
+    }
+
+    pledges.append(pledge_entry)
     save_json(PLEDGE_CHAIN, pledges)
 
     # Ύψος chain για το QR / secure PDF
@@ -215,14 +188,20 @@ def pledge_submit():
         thr_address=thr_addr,
         pledge_hash=phash,
         height=height,
+        send_seed=send_seed,
+        output_dir=CONTRACTS_DIR,
     )
+
+    # κρατάμε και το filename πίσω στο pledge
+    pledge_entry["pdf_filename"] = pdf_name
+    save_json(PLEDGE_CHAIN, pledges)
 
     return jsonify(
         status="verified",
         thr_address=thr_addr,
         pledge_hash=phash,
         pdf_filename=pdf_name,
-        send_secret=send_secret,  # ΜΟΝΟ στον client
+        send_secret=send_seed,  # ΜΟΝΟ στον client (σαν seed)
     ), 200
 
 
@@ -303,7 +282,7 @@ def wallet_redirect(thr_addr):
     return redirect(url_for("wallet_data", thr_addr=thr_addr)), 302
 
 
-# ─── SEND THR (με auth_secret) ─────────────────────
+# ─── SEND THR (με auth_secret = send_seed) ─────────
 @app.route("/send_thr", methods=["POST"])
 def send_thr():
     data = request.get_json() or {}
@@ -311,7 +290,7 @@ def send_thr():
     from_thr    = (data.get("from_thr") or "").strip()
     to_thr      = (data.get("to_thr") or "").strip()
     amount_raw  = data.get("amount", 0)
-    auth_secret = (data.get("auth_secret") or "").strip()
+    auth_secret = (data.get("auth_secret") or "").strip()  # εδώ βάζουμε το seed από το PDF
 
     try:
         amount = float(amount_raw)
@@ -333,12 +312,13 @@ def send_thr():
     if not sender_pledge:
         return jsonify(error="unknown_sender_thr"), 404
 
-    stored_hash = sender_pledge.get("send_auth_hash")
-    if not stored_hash:
+    stored_auth_hash = sender_pledge.get("send_auth_hash")
+    if not stored_auth_hash:
         return jsonify(error="send_not_enabled_for_this_thr"), 400
 
-    auth_hash = hashlib.sha256(auth_secret.encode()).hexdigest()
-    if auth_hash != stored_hash:
+    # auth_secret = send_seed -> hash για auth
+    auth_hash = hashlib.sha256(f"{auth_secret}:auth".encode()).hexdigest()
+    if auth_hash != stored_auth_hash:
         return jsonify(error="invalid_auth"), 403
 
     ledger = load_json(LEDGER_FILE, {})
@@ -384,17 +364,12 @@ def send_thr():
     ), 200
 
 
-# ─── ADMIN WHITELIST ENDPOINTS ─────────────────────
+# ─── ADMIN WHITELIST + MIGRATION ───────────────────
 @app.route("/admin/whitelist", methods=["GET"])
 def admin_whitelist_page():
-    """
-    Simple admin UI για whitelist.
-    Απαιτεί ?secret=ADMIN_SECRET στο URL, αλλιώς 403.
-    """
     secret = request.args.get("secret", "")
     if secret != ADMIN_SECRET:
         return "Forbidden (wrong or missing secret)", 403
-
     return render_template("admin_whitelist.html", admin_secret=secret)
 
 
@@ -424,6 +399,64 @@ def admin_whitelist_list():
 
     wl = load_json(WHITELIST_FILE, [])
     return jsonify(whitelist=wl), 200
+
+
+@app.route("/admin/migrate_seeds", methods=["POST", "GET"])
+def admin_migrate_seeds():
+    """
+    Μόνο για ΣΕΝΑ τώρα:
+    - Βρίσκει pledge entries που ΔΕΝ έχουν send_seed_hash
+    - Φτιάχνει send_seed, send_seed_hash, send_auth_hash
+    - Ξαναφτιάχνει PDF με το seed μέσα
+    - Σου επιστρέφει JSON με {thr_address, btc_address, send_seed, pdf_filename}
+      για να κρατήσεις/σημειώσεις τα seeds.
+    """
+    secret = request.args.get("secret", "") or (request.get_json() or {}).get("secret")
+    if secret != ADMIN_SECRET:
+        return jsonify(error="forbidden"), 403
+
+    pledges = load_json(PLEDGE_CHAIN, [])
+    changed = []
+
+    for p in pledges:
+        if p.get("send_seed_hash") and p.get("send_auth_hash"):
+            continue  # ήδη migrated
+
+        thr_addr    = p["thr_address"]
+        btc_address = p["btc_address"]
+        pledge_text = p["pledge_text"]
+        pledge_hash = p["pledge_hash"]
+
+        send_seed      = secrets.token_hex(16)
+        send_seed_hash = hashlib.sha256(send_seed.encode()).hexdigest()
+        send_auth_hash = hashlib.sha256(f"{send_seed}:auth".encode()).hexdigest()
+
+        p["send_seed_hash"] = send_seed_hash
+        p["send_auth_hash"] = send_auth_hash
+
+        # Φτιάξε ξανά PDF με νέο seed
+        chain  = load_json(CHAIN_FILE, [])
+        height = len(chain)
+        pdf_name = create_secure_pdf_contract(
+            btc_address=btc_address,
+            pledge_text=pledge_text,
+            thr_address=thr_addr,
+            pledge_hash=pledge_hash,
+            height=height,
+            send_seed=send_seed,
+            output_dir=CONTRACTS_DIR,
+        )
+        p["pdf_filename"] = pdf_name
+
+        changed.append({
+            "thr_address": thr_addr,
+            "btc_address": btc_address,
+            "send_seed": send_seed,
+            "pdf_filename": pdf_name,
+        })
+
+    save_json(PLEDGE_CHAIN, pledges)
+    return jsonify(migrated=changed), 200
 
 
 # ─── BACKGROUND MINTER ─────────────────────────────
