@@ -1,5 +1,5 @@
 # server.py
-# Full-featured ThronosChain server with pledge, PDF, wallet, and token dynamics + data volume
+# Full-featured ThronosChain server with pledge, PDF, wallet, token dynamics + data volume + whitelist admin
 
 import os
 import json
@@ -22,9 +22,9 @@ from secure_pledge_embed import create_secure_pdf_contract
 # ─── CONFIG ────────────────────────────────────────
 app = Flask(__name__)
 
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR  = os.path.join(BASE_DIR, "static")
-DATA_DIR    = os.path.join(BASE_DIR, "data")
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+DATA_DIR   = os.path.join(BASE_DIR, "data")
 
 # Volume στο Railway: /app/data
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -32,6 +32,10 @@ os.makedirs(DATA_DIR, exist_ok=True)
 LEDGER_FILE   = os.path.join(DATA_DIR, "ledger.json")
 CHAIN_FILE    = os.path.join(DATA_DIR, "phantom_tx_chain.json")
 PLEDGE_CHAIN  = os.path.join(DATA_DIR, "pledge_chain.json")
+
+# Whitelist για free pledges (χωρίς BTC)
+WHITELIST_FILE = os.path.join(DATA_DIR, "free_pledge_whitelist.json")
+ADMIN_SECRET   = os.getenv("ADMIN_SECRET", "CHANGE_ME_NOW")
 
 BTC_RECEIVER  = "1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
 MIN_AMOUNT    = 0.00001
@@ -47,9 +51,7 @@ def load_json(path, default):
     try:
         with open(path, "r") as f:
             return json.load(f)
-    except FileNotFoundError:
-        return default
-    except json.JSONDecodeError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return default
 
 def save_json(path, data):
@@ -96,12 +98,20 @@ def pledge_submit():
             pdf_filename=f"pledge_{exists['thr_address']}.pdf",
         ), 200
 
-    # BTC verification
-    txns = get_btc_txns(btc_address, BTC_RECEIVER)
-    paid = any(
-        tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT
-        for tx in txns
-    )
+    # --- BTC verification ή free mode με whitelist ---
+    free_list = load_json(WHITELIST_FILE, [])
+    is_dev_free = btc_address in free_list
+
+    if is_dev_free:
+        paid = True
+        txns = []  # δεν χρειάζεται call στο explorer
+    else:
+        txns = get_btc_txns(btc_address, BTC_RECEIVER)
+        paid = any(
+            tx["to"] == BTC_RECEIVER and tx["amount_btc"] >= MIN_AMOUNT
+            for tx in txns
+        )
+
     if not paid:
         return jsonify(
             status="pending",
@@ -221,6 +231,35 @@ def wallet_data(thr_addr):
 @app.route("/wallet/<thr_addr>")
 def wallet_redirect(thr_addr):
     return redirect(url_for("wallet_data", thr_addr=thr_addr)), 302
+
+# ─── ADMIN WHITELIST ENDPOINTS ─────────────────────
+
+@app.route("/admin/whitelist/add", methods=["POST"])
+def admin_whitelist_add():
+    data = request.get_json() or {}
+    if data.get("secret") != ADMIN_SECRET:
+        return jsonify(error="forbidden"), 403
+
+    btc = (data.get("btc_address") or "").strip()
+    if not btc:
+        return jsonify(error="missing btc_address"), 400
+
+    wl = load_json(WHITELIST_FILE, [])
+    if btc not in wl:
+        wl.append(btc)
+        save_json(WHITELIST_FILE, wl)
+
+    return jsonify(status="ok", whitelist=wl), 200
+
+
+@app.route("/admin/whitelist/list", methods=["GET"])
+def admin_whitelist_list():
+    secret = request.args.get("secret", "")
+    if secret != ADMIN_SECRET:
+        return jsonify(error="forbidden"), 403
+
+    wl = load_json(WHITELIST_FILE, [])
+    return jsonify(whitelist=wl), 200
 
 # ─── BACKGROUND MINTER ─────────────────────────────
 def mint_first_blocks():
