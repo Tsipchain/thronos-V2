@@ -5,6 +5,7 @@
 # - data volume (/app/data)
 # - whitelist για free pledges
 # - ασφαλές THR send με auth_secret ανά THR address
+# - auto-rebuild των pledge PDFs μετά από redeploy
 
 import os
 import json
@@ -17,7 +18,7 @@ import requests
 from flask import (
     Flask, request, jsonify,
     render_template, send_from_directory,
-    redirect, url_for
+    redirect, url_for, abort,   # abort για 404
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -82,8 +83,44 @@ def home():
 
 @app.route("/contracts/<path:filename>")
 def serve_contract(filename):
-    # Σερβίρει PDF + PNG από static/contracts
-    return send_from_directory(CONTRACTS_DIR, filename)
+    """
+    Σερβίρει συμβόλαια. Αν το PDF λείπει (μετά από redeploy),
+    προσπαθεί να το ξαναδημιουργήσει από το pledge_chain.json.
+    """
+    full_path = os.path.join(CONTRACTS_DIR, filename)
+
+    # Αν υπάρχει ήδη, απλά το σερβίρουμε
+    if os.path.exists(full_path):
+        return send_from_directory(CONTRACTS_DIR, filename)
+
+    # Auto-rebuild μόνο για pledge_*.pdf
+    if filename.startswith("pledge_") and filename.endswith(".pdf"):
+        thr_addr = filename[len("pledge_"):-4]  # π.χ. THR1764...
+
+        pledges = load_json(PLEDGE_CHAIN, [])
+        pledge = next(
+            (p for p in pledges if p.get("thr_address") == thr_addr),
+            None
+        )
+
+        if pledge:
+            chain = load_json(CHAIN_FILE, [])
+            height = len(chain)
+
+            # Ξαναδημιουργία secure PDF με τα δεδομένα του pledge
+            create_secure_pdf_contract(
+                btc_address=pledge["btc_address"],
+                pledge_text=pledge["pledge_text"],
+                thr_address=pledge["thr_address"],
+                pledge_hash=pledge["pledge_hash"],
+                height=height,
+            )
+
+            if os.path.exists(full_path):
+                return send_from_directory(CONTRACTS_DIR, filename)
+
+    # Αν δεν βρέθηκε / δεν δημιουργήθηκε
+    return abort(404)
 
 
 @app.route("/viewer")
@@ -98,6 +135,7 @@ def wallet_page():
 
 @app.route("/send")
 def send_page():
+    # Χρειάζεται templates/send.html
     return render_template("send.html")
 
 
@@ -287,7 +325,6 @@ def send_thr():
     if not auth_secret:
         return jsonify(error="missing_auth_secret"), 400
 
-    # Πάρε το pledge του from_thr
     pledges = load_json(PLEDGE_CHAIN, [])
     sender_pledge = next(
         (p for p in pledges if p.get("thr_address") == from_thr),
@@ -358,8 +395,8 @@ def admin_whitelist_page():
     if secret != ADMIN_SECRET:
         return "Forbidden (wrong or missing secret)", 403
 
-    # Θα περαστεί στο template ώστε το JS να καλεί τα JSON endpoints
     return render_template("admin_whitelist.html", admin_secret=secret)
+
 
 @app.route("/admin/whitelist/add", methods=["POST"])
 def admin_whitelist_add():
