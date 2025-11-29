@@ -1,62 +1,61 @@
+#!/usr/bin/env python3
+"""
+Thronos THR Sender (CLI client)
 
-import json
-from datetime import datetime
-from pathlib import Path
+Χρησιμοποιεί το /send_thr API του server:
+ - Ελέγχει auth_secret (send_secret από το pledge)
+ - Ενημερώνει ledger & chain στο server
+"""
+
 import sys
+import json
+import requests
 
-CHAIN_PATH = Path("phantom_tx_chain.json")
-TX_LOG_PATH = Path("send_thr_log.json")
+SERVER = "https://thrchain.up.railway.app"  # άλλαξέ το αν τρέχεις local
 
-def load_chain():
-    if CHAIN_PATH.exists():
-        with open(CHAIN_PATH, "r") as f:
-            return json.load(f)
-    return []
 
-def save_chain(chain):
-    with open(CHAIN_PATH, "w") as f:
-        json.dump(chain, f, indent=2)
+def send_thr(from_addr, to_addr, amount, auth_secret):
+    payload = {
+        "from_thr": from_addr,
+        "to_thr": to_addr,
+        "amount": amount,
+        "auth_secret": auth_secret,
+    }
 
-def log_transaction(tx):
-    logs = []
-    if TX_LOG_PATH.exists():
-        with open(TX_LOG_PATH, "r") as f:
-            logs = json.load(f)
-    logs.append(tx)
-    with open(TX_LOG_PATH, "w") as f:
-        json.dump(logs, f, indent=2)
-
-def get_balance(address, chain):
-    balance = 0.0
-    for block in chain:
-        if block.get("reward_to_address") == address:
-            balance += float(block.get("reward", 0))
-        if block.get("from") == address:
-            balance -= float(block.get("amount", 0))
-    return round(balance, 6)
-
-def send_thr(from_addr, to_addr, amount):
-    chain = load_chain()
-    balance = get_balance(from_addr, chain)
-    if balance < amount:
-        print(f"Insufficient balance. Current: {balance}, Required: {amount}")
+    url = f"{SERVER}/send_thr"
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"❌ Network error: {e}")
         return
 
-    block = {
-        "type": "transfer",
-        "timestamp": datetime.utcnow().isoformat(),
-        "from": from_addr,
-        "to": to_addr,
-        "amount": amount,
-        "block_hash": f"THR_TX_{datetime.utcnow().timestamp()}"
-    }
-    chain.append(block)
-    save_chain(chain)
-    log_transaction(block)
-    print(f"✅ Sent {amount} THR from {from_addr} to {to_addr}.")
+    try:
+        data = r.json()
+    except Exception:
+        print("❌ Invalid JSON response:", r.text[:500])
+        return
+
+    print(f"HTTP {r.status_code}")
+    print(json.dumps(data, indent=2))
+
+    if r.ok and data.get("status") == "ok":
+        print("✅ Send successful!")
+        print("   TX ID:", data["tx"]["tx_id"])
+        print("   New sender balance:", data["new_balance_from"])
+        print("   New receiver balance:", data["new_balance_to"])
+    else:
+        print("⚠️ Send failed.")
+
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python send_thr.py <from_address> <to_address> <amount>")
+    # Usage: python send_thr.py FROM_THR TO_THR AMOUNT AUTH_SECRET
+    if len(sys.argv) != 5:
+        print("Usage: python send_thr.py <from_thr> <to_thr> <amount> <auth_secret>")
         sys.exit(1)
-    send_thr(sys.argv[1], sys.argv[2], float(sys.argv[3]))
+
+    from_thr = sys.argv[1]
+    to_thr = sys.argv[2]
+    amount = sys.argv[3]
+    auth_secret = sys.argv[4]
+
+    send_thr(from_thr, to_thr, amount, auth_secret)
