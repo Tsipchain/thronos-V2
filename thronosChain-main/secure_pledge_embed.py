@@ -7,7 +7,8 @@ import time
 from PIL import Image
 from fpdf import FPDF
 from Cryptodome.Cipher import AES
-from Crypto.Random import get_random_bytes
+from Cryptodome.Random import get_random_bytes
+
 
 # Configuration
 CONTRACTS_DIR = "static/contracts"
