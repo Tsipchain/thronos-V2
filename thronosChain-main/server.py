@@ -234,6 +234,19 @@ def wallet_redirect(thr_addr):
 
 # ─── ADMIN WHITELIST ENDPOINTS ─────────────────────
 
+@app.route("/admin/whitelist", methods=["GET"])
+def admin_whitelist_page():
+    """
+    Simple admin UI για whitelist.
+    Απαιτεί ?secret=ADMIN_SECRET στο URL, αλλιώς 403.
+    """
+    secret = request.args.get("secret", "")
+    if secret != ADMIN_SECRET:
+        return "Forbidden (wrong or missing secret)", 403
+
+    # Θα περαστεί στο template ώστε το JS να καλεί τα JSON endpoints
+    return render_template("admin_whitelist.html", admin_secret=secret)
+
 @app.route("/admin/whitelist/add", methods=["POST"])
 def admin_whitelist_add():
     data = request.get_json() or {}
