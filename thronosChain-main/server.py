@@ -7,6 +7,7 @@
 # - ασφαλές THR send με auth_secret (seed) ανά THR address
 # - migration για ήδη υπάρχοντα pledges -> send_seed / send_auth_hash
 # - last_block.json για σταθερό viewer/home status
+# - recovery flow via steganography
 
 import os
 import json
@@ -21,10 +22,12 @@ from flask import (
     render_template, send_from_directory,
     redirect, url_for
 )
+from werkzeug.utils import secure_filename
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from phantom_gateway_mainnet import get_btc_txns
 from secure_pledge_embed import create_secure_pdf_contract
+from phantom_decode import decode_payload_from_image
 
 # ─── CONFIG ────────────────────────────────────────
 app = Flask(__name__)
@@ -33,7 +36,9 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 # Railway volume → /app/data
-DATA_DIR   = os.path.join(BASE_DIR, "data")
+# Ensure DATA_DIR is persistent. If run locally, it will be under current dir/data.
+# On Railway, mount a volume to /app/data.
+DATA_DIR   = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 os.makedirs(DATA_DIR, exist_ok=True)
 
 LEDGER_FILE   = os.path.join(DATA_DIR, "ledger.json")
@@ -123,6 +128,46 @@ def send_page():
     return render_template("send.html")
 
 
+# ─── RECOVERY FLOW ─────────────────────────────────
+@app.route("/recovery")
+def recovery_page():
+    return render_template("recovery.html")
+
+
+@app.route("/recover_submit", methods=["POST"])
+def recover_submit():
+    if 'file' not in request.files:
+        return jsonify(error="No file part"), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify(error="No selected file"), 400
+    
+    if file:
+        filename = secure_filename(file.filename)
+        # Save temporarily in DATA_DIR to avoid permission issues
+        temp_path = os.path.join(DATA_DIR, f"temp_{int(time.time())}_{filename}")
+        try:
+            file.save(temp_path)
+            
+            # Attempt decode
+            payload = decode_payload_from_image(temp_path)
+            
+            # Clean up
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            
+            if payload:
+                return jsonify(status="success", payload=payload), 200
+            else:
+                return jsonify(error="Failed to decode steganographic data. Ensure you uploaded the correct image/PDF."), 400
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify(error=f"Server error: {str(e)}"), 500
+            
+    return jsonify(error="Unknown error"), 500
+
+
 # ─── STATUS APIs (για home + viewer) ───────────────
 @app.route("/chain")
 def get_chain():
@@ -166,6 +211,7 @@ def pledge_submit():
     data = request.get_json() or {}
     btc_address = (data.get("btc_address") or "").strip()
     pledge_text = (data.get("pledge_text") or "").strip()
+    passphrase  = (data.get("passphrase") or "").strip()  # Optional passphrase
 
     if not btc_address:
         return jsonify(error="Missing BTC address"), 400
@@ -210,7 +256,14 @@ def pledge_submit():
     # Send seed (seed phrase για /send_thr)
     send_seed      = secrets.token_hex(16)  # 32 hex chars
     send_seed_hash = hashlib.sha256(send_seed.encode()).hexdigest()
-    send_auth_hash = hashlib.sha256(f"{send_seed}:auth".encode()).hexdigest()
+    
+    # Υπολογισμός send_auth_hash με υποστήριξη passphrase
+    if passphrase:
+        auth_string = f"{send_seed}:{passphrase}:auth"
+    else:
+        auth_string = f"{send_seed}:auth"
+    
+    send_auth_hash = hashlib.sha256(auth_string.encode()).hexdigest()
 
     pledge_entry = {
         "btc_address": btc_address,
@@ -220,6 +273,7 @@ def pledge_submit():
         "thr_address": thr_addr,
         "send_seed_hash": send_seed_hash,
         "send_auth_hash": send_auth_hash,
+        "has_passphrase": bool(passphrase) # Flag για να ξέρουμε αν απαιτείται passphrase
     }
 
     # Ύψος chain για το QR / secure PDF
@@ -281,6 +335,7 @@ def send_thr():
     to_thr      = (data.get("to_thr") or "").strip()
     amount_raw  = data.get("amount", 0)
     auth_secret = (data.get("auth_secret") or "").strip()  # εδώ βάζει ο χρήστης το seed
+    passphrase  = (data.get("passphrase") or "").strip()   # Optional passphrase
 
     try:
         amount = float(amount_raw)
@@ -307,7 +362,16 @@ def send_thr():
         return jsonify(error="send_not_enabled_for_this_thr"), 400
 
     # auth_secret = send_seed -> hash για auth
-    auth_hash = hashlib.sha256(f"{auth_secret}:auth".encode()).hexdigest()
+    # Check if passphrase is required/provided and construct auth string accordingly
+    if sender_pledge.get("has_passphrase"):
+        if not passphrase:
+             return jsonify(error="passphrase_required"), 400
+        auth_string = f"{auth_secret}:{passphrase}:auth"
+    else:
+        auth_string = f"{auth_secret}:auth"
+
+    auth_hash = hashlib.sha256(auth_string.encode()).hexdigest()
+    
     if auth_hash != stored_auth_hash:
         return jsonify(error="invalid_auth"), 403
 
@@ -430,6 +494,7 @@ def admin_migrate_seeds():
 
         p["send_seed_hash"] = send_seed_hash
         p["send_auth_hash"] = send_auth_hash
+        p["has_passphrase"] = False # Migration assumes no passphrase for old pledges
 
         chain  = load_json(CHAIN_FILE, [])
         height = len(chain)
