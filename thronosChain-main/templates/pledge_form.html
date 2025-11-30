@@ -2,226 +2,113 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>🔥 Thronos Pledge System</title>
+  <title>🔥 Thronos Pledge to the Flame</title>
+
   <style>
-    body {
-      background-color: #000;
-      color: #0f0;
-      font-family: monospace;
-      text-align: center;
-      margin: 0;
-      padding: 0;
+    body { background:#000; color:#0f0; font-family:monospace; text-align:center; }
+    nav { background:#111; padding:10px; }
+    nav a { color:#0f0; margin:0 10px; text-decoration:none; }
+
+    form { width:80%; max-width:650px; margin:20px auto; text-align:left; }
+    input,textarea{
+      width:100%; padding:8px; margin-top:5px;
+      background:#111; border:1px solid #0f0; color:#0f0;
+      font-family:monospace;
     }
-    nav {
-      background: #111;
-      padding: 10px;
-    }
-    nav a {
-      color: #0f0;
-      margin: 0 10px;
-      text-decoration: none;
-    }
-    h1 {
-      margin-top: 20px;
-    }
-    form {
-      margin: 20px auto;
-      width: 80%;
-      max-width: 600px;
-      text-align: left;
-    }
-    label {
-      display: block;
-      margin-top: 15px;
-      font-weight: bold;
-    }
-    input, textarea {
-      width: 100%;
-      padding: 8px;
-      margin-top: 5px;
-      background-color: #111;
-      color: #0f0;
-      border: 1px solid #0f0;
-      box-sizing: border-box;
-      font-family: monospace;
-    }
-    textarea { resize: vertical; }
-    #btc-instructions {
-      margin: 20px auto;
-      padding: 15px;
-      border: 1px dashed #0f0;
-      text-align: center;
-    }
-    #btc-instructions img {
-      cursor: pointer;
-      margin-top: 10px;
-    }
-    button {
-      display: block;
-      margin: 20px auto;
-      padding: 10px 20px;
-      background-color: #0f0;
-      color: #000;
-      border: none;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    #result {
-      width: 80%;
-      max-width: 600px;
-      margin: 20px auto;
-      padding: 15px;
-      background: #111;
-      border: 1px solid #0f0;
-      text-align: left;
-      white-space: pre-wrap;
-    }
-    #result.error { border-color: #f00; color: #f00; }
-    #result.success { border-color: #0f0; color: #0f0; }
-    a.pdf-link {
-      color: #0f0;
-      text-decoration: underline;
-    }
-    .small-note {
-      font-size: 11px;
-      color: #9f9;
-      margin-top: 4px;
-    }
-    code {
-      background:#020;
-      padding:2px 4px;
-    }
+    label{ font-weight:bold; margin-top:15px; display:block; }
+    .info{ font-size:13px; color:#0f0; opacity:0.8; }
+
+    #result{ margin-top:25px; border:1px solid #0f0;
+      width:80%; max-width:650px; padding:15px; text-align:left; }
+    #result.error{ border-color:red; color:red; }
+    #result.success{ border-color:#0f0; }
+    .pdf-link{ color:#0f0; text-decoration:underline; }
   </style>
 </head>
+
 <body>
 
-  <nav>
-    <a href="/">🏠 Home</a>
-    <a href="/pledge">🔥 Pledge</a>
-    <a href="/viewer">📦 Viewer</a>
-    <a href="/send">💸 Send</a>
-    <a href="/docs">📚 Docs</a>
-  </nav>
+<nav>
+  <a href="/">🏠 Home</a>
+  <a href="/pledge">🔥 Pledge</a>
+  <a href="/viewer">📦 Viewer</a>
+  <a href="/wallet">💼 Wallet</a>
+  <a href="/send">💸 Send</a>
+</nav>
 
-  <h1>🔥 Pledge to the Flame</h1>
+<h1>🔥 Pledge to the Flame</h1>
 
-  <form id="pledgeForm">
-    <label for="btc_address">BTC Address (KYC):</label>
-    <input type="text" id="btc_address" placeholder="e.g. 1FQov4P8yz..." required>
+<form id="pledgeForm">
 
-    <label for="pledge_text">Your Pledge:</label>
-    <textarea id="pledge_text" rows="4">I hereby pledge allegiance to the Thronos Chain.</textarea>
+  <label>BTC Address (KYC):</label>
+  <input id="btc_address" placeholder="e.g. 1FQov4P8yz..." required>
 
-    <label for="user_passphrase">Secret Passphrase (optional):</label>
-    <input type="text" id="user_passphrase" placeholder="Μια φράση που μόνο εσύ ξέρεις">
-    <div class="small-note">
-      • Αν βάλεις passphrase, το δικαίωμα αποστολής THR απαιτεί: (PDF + αυτή τη φράση).<br>
-      • Χάσεις και τα δύο → όπως σε κανονικό seed, δεν υπάρχει recovery.
-    </div>
+  <label>Your Pledge:</label>
+  <textarea id="pledge_text" rows="4">I hereby pledge allegiance to the Thronos Chain.</textarea>
 
-    <div id="btc-instructions">
-      <p>Send a minimum BTC fee to:</p>
-      <p><strong>1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ</strong></p>
-      <img
-        src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=bitcoin:1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
-        alt="QR Code" title="Click to copy address">
-      <p style="font-size:12px;">(Click QR to copy address)</p>
-    </div>
+  <label>Secret Passphrase (optional):</label>
+  <input id="user_passphrase" placeholder="Μόνο εσύ πρέπει να τη γνωρίζεις. / Only you must know this.">
+  <div class="info">
+    • If you add a passphrase, THR sending **requires both**: (PDF-stego seed + this phrase).<br>
+    • If you lose BOTH → no recovery possible (like a real blockchain).
+  </div>
 
-    <button type="submit">Submit Pledge</button>
-  </form>
+  <br><br>
 
-  <div id="result"></div>
+  <div style="border:1px dashed #0f0; padding:15px; text-align:center;">
+    <p>Send a minimum BTC fee to:</p>
+    <p><b>1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ</b></p>
+    <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=bitcoin:1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ"
+         id="qr" title="Click to copy address" style="cursor:pointer;">
+    <p style="font-size:12px">(Click QR to copy BTC address)</p>
+  </div>
 
-  <script>
-    // copy-on-click for QR
-    document.querySelector("#btc-instructions img")
-      .addEventListener("click", () => {
-        navigator.clipboard.writeText("1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ");
-        alert("📋 BTC address copied to clipboard");
-      });
+  <button type="submit">Submit Pledge</button>
+</form>
 
-    // handle form submit
-    document.getElementById("pledgeForm").addEventListener("submit", async e => {
-      e.preventDefault();
-      const resultDiv = document.getElementById("result");
-      resultDiv.className = "";
-      resultDiv.textContent = "⏳ Processing...";
+<div id="result"></div>
 
-      const btcAddress  = document.getElementById("btc_address").value.trim();
-      const pledgeText  = document.getElementById("pledge_text").value.trim();
-      const passphrase  = document.getElementById("user_passphrase").value.trim();
+<script>
+document.getElementById("qr").onclick = () => {
+  navigator.clipboard.writeText("1QFeDPwEF8yEgPEfP79hpc8pHytXMz9oEQ");
+  alert("BTC address copied!");
+};
 
-      const payload = {
-        btc_address: btcAddress,
-        pledge_text: pledgeText
-      };
-      if (passphrase) {
-        payload.user_passphrase = passphrase;
-      }
+document.getElementById("pledgeForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const result = document.getElementById("result");
+  result.className = "";
+  result.textContent = "⏳ Processing...";
 
-      try {
-        const res = await fetch("/pledge_submit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || data.error || res.statusText);
+  const payload = {
+    btc_address: document.getElementById("btc_address").value.trim(),
+    pledge_text: document.getElementById("pledge_text").value.trim(),
+    user_passphrase: document.getElementById("user_passphrase").value.trim(),
+  };
 
-        // PENDING (δεν έχει βρεθεί ακόμη BTC tx)
-        if (data.status === "pending") {
-          resultDiv.classList.add("success");
-          resultDiv.innerHTML =
-            "<strong>⌛ Waiting for BTC payment…</strong><br><br>" +
-            "Address: <code>" + btcAddress + "</code><br><br>" +
-            "Explorer txns:<br>" +
-            "<pre style='white-space:pre-wrap;'>" +
-            JSON.stringify(data.txns || [], null, 2) +
-            "</pre>";
-          return;
-        }
-
-        // VERIFIED ή ALREADY_VERIFIED
-        resultDiv.classList.add("success");
-
-        let html = "";
-        html += `<strong>✅ ${
-          data.status === "already_verified" ? "Already Verified" : "Pledge Accepted!"
-        }</strong><br><br>`;
-
-        html += `THR Address: <code>${data.thr_address || ""}</code><br>`;
-        html += `Pledge Hash: <code>${data.pledge_hash || ""}</code><br><br>`;
-
-        // δείχνουμε send_secret ΜΟΝΟ αν δόθηκε από το API (πρώτη φορά)
-        if (data.send_secret) {
-          html += `<strong>🔐 Send Secret (auth_secret):</strong><br>`;
-          html += `<code>${data.send_secret}</code><br>`;
-          html += `<span class="small-note">
-            • Αυτό είναι το auth_secret που θα βάζεις στη σελίδα <a href="/send">Send THR</a>.<br>
-            • ΜΗΝ το δείχνεις σε κανέναν. Αν χαθεί, recovery γίνεται μόνο μέσω PDF + (προαιρετικής) φράσης.
-          </span><br><br>`;
-        }
-
-        if (data.pdf_filename) {
-          html += `📄 <a class="pdf-link" href="/contracts/${data.pdf_filename}" target="_blank">
-            Download Contract PDF
-          </a><br><br>`;
-        }
-
-        if (data.thr_address) {
-          html += `🚀 <a href="/wallet/${data.thr_address}">
-            Go to Wallet &amp; Download CGMiner Kit
-          </a>`;
-        }
-
-        resultDiv.innerHTML = html;
-      } catch (err) {
-        resultDiv.classList.add("error");
-        resultDiv.innerHTML = `<strong>❌ Error:</strong> ${err.message}`;
-      }
+  try {
+    const r = await fetch("/pledge_submit", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
     });
-  </script>
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || data.message || "Unknown error");
+
+    result.classList.add("success");
+    result.innerHTML = `
+      <b>🔥 Pledge Accepted!</b><br><br>
+      THR Address: <code>${data.thr_address}</code><br>
+      Pledge Hash: <code>${data.pledge_hash}</code><br><br>
+      📄 <a class="pdf-link" href="/contracts/${data.pdf_filename}" target="_blank">Download Contract PDF</a><br><br>
+      💼 <a href="/wallet/${data.thr_address}">Go to Wallet</a>
+    `;
+  } catch (err) {
+    result.classList.add("error");
+    result.innerHTML = `<b>❌ Error:</b> ${err.message}`;
+  }
+};
+</script>
 
 </body>
 </html>
