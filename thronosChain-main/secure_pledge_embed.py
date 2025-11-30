@@ -1,145 +1,89 @@
-# secure_pledge_embed.py
-# Δημιουργεί ασφαλές pledge PDF:
-# - AES/EAX κρυπτογραφημένο payload
-# - QR με node + THR + height
-# - Stego εικόνα PIC OF THE FIRE με κρυμμένο send_seed
-
 import os
-import json
+import io
 import base64
+import uuid
 import hashlib
-from io import BytesIO
-import time
+from datetime import datetime
 
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import inch
-
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 from PIL import Image
 import qrcode
 
-from Cryptodome.Cipher import AES
-from Cryptodome.Random import get_random_bytes
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-
-FIRE_IMG_PATH = os.path.join(STATIC_DIR, "PIC OF THE FIRE.png")
-
-
-def _get_default_contracts_dir():
-    return os.path.join(STATIC_DIR, "contracts")
+# Βασικά paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# To “PIC OF THE FIRE.png” που χρησιμεύει σαν βάση stego
+FIRE_BASE_PATH = os.path.join(BASE_DIR, "static", "PIC OF THE FIRE.png")
 
 
-os.makedirs(_get_default_contracts_dir(), exist_ok=True)
-
-
-# ───────────── Stego helpers ───────────── #
-
-def _embed_seed_in_fire_image(thr_address: str, send_seed: str, output_dir: str) -> str:
+# ─────────────────────────────────────────────────────────
+#  AES κρυπτογράφηση pledge
+# ─────────────────────────────────────────────────────────
+def encrypt_pledge_text(pledge_text: str, send_seed: str) -> str:
     """
-    Κρύβει το send_seed μέσα στην εικόνα PIC OF THE FIRE με LSB steganography.
-    Payload = {"thr_address": ..., "send_seed": ...}
+    Κρυπτογραφεί το pledge με AES/EAX.
+    Το κλειδί προκύπτει από sha256(send_seed).
+    Επιστρέφει base64(nonce || tag || ciphertext).
     """
-    payload = json.dumps(
-        {"thr_address": thr_address, "send_seed": send_seed},
-        sort_keys=True,
-    ).encode("utf-8") + b"\0"  # null-terminated
+    key = hashlib.sha256(send_seed.encode("utf-8")).digest()
+    cipher = AES.new(key, AES.MODE_EAX)
+    ciphertext, tag = cipher.encrypt_and_digest(pledge_text.encode("utf-8"))
 
-    bits = "".join(f"{b:08b}" for b in payload)
+    blob = cipher.nonce + tag + ciphertext
+    return base64.b64encode(blob).decode("ascii")
 
-    img = Image.open(FIRE_IMG_PATH).convert("RGB")
-    w, h = img.size
-    total_pixels = w * h
 
-    if len(bits) > total_pixels:
-        raise ValueError("Secret too long to hide in PIC OF THE FIRE image")
+# ─────────────────────────────────────────────────────────
+#  Stego: κρύβουμε το send_seed στα LSB του κόκκινου καναλιού
+# ─────────────────────────────────────────────────────────
+def embed_seed_in_fire_image(send_seed: str, output_dir: str) -> str:
+    """
+    Φορτώνει το PIC OF THE FIRE.png και κρύβει το send_seed
+    στα LSB του κόκκινου καναλιού. Επιστρέφει το path του
+    stego PNG (που θα μπει στο PDF).
+    """
+    if not os.path.exists(FIRE_BASE_PATH):
+        raise FileNotFoundError(f"Base fire image not found: {FIRE_BASE_PATH}")
 
+    img = Image.open(FIRE_BASE_PATH).convert("RGB")
     pixels = img.load()
-    i = 0
 
-    for y in range(h):
-        for x in range(w):
+    seed_bytes = send_seed.encode("utf-8")  # π.χ. 32 hex chars
+    bits = "".join(f"{b:08b}" for b in seed_bytes)
+
+    width, height = img.size
+    total_pixels = width * height
+    if len(bits) > total_pixels:
+        raise ValueError("Seed too long to embed in fire image")
+
+    # Γράφουμε bits στα LSB του red channel, σκανάροντας γραμμικά
+    i = 0
+    for y in range(height):
+        for x in range(width):
             if i >= len(bits):
                 break
             r, g, b = pixels[x, y]
-            r = (r & 0xFE) | int(bits[i])  # γράφουμε στο LSB του red
+            bit = int(bits[i])
+            r = (r & ~1) | bit  # βάζουμε το bit στο LSB
             pixels[x, y] = (r, g, b)
             i += 1
         if i >= len(bits):
             break
 
     os.makedirs(output_dir, exist_ok=True)
-    out_name = f"pledge_{thr_address}_fire_stego.png"
-    out_path = os.path.join(output_dir, out_name)
-    img.save(out_path, "PNG")
-    return out_path
+    stego_name = f"fire_stego_{uuid.uuid4().hex}.png"
+    stego_path = os.path.join(output_dir, stego_name)
+    img.save(stego_path, format="PNG")
+    return stego_path
 
 
-def decode_seed_from_image(path: str) -> dict:
-    """
-    Utility για recovery: διαβάζει το stego PNG και γυρνά dict {thr_address, send_seed}.
-    """
-    img = Image.open(path).convert("RGB")
-    w, h = img.size
-    pixels = img.load()
-
-    bits = []
-    for y in range(h):
-        for x in range(w):
-            r, g, b = pixels[x, y]
-            bits.append(str(r & 1))
-
-    data_bytes = bytearray()
-    for i in range(0, len(bits), 8):
-        byte = int("".join(bits[i:i+8]), 2)
-        if byte == 0:
-            break
-        data_bytes.append(byte)
-
-    decoded = data_bytes.decode("utf-8")
-    return json.loads(decoded)
-
-
-# ───────────── AES helpers ───────────── #
-
-def _get_aes_key() -> bytes:
-    """
-    THRONOS_PDF_AES_KEY από env → SHA256 → 32 bytes.
-    Αν λείπει, χρησιμοποιεί 32 μηδενικά (όχι ιδανικό, αλλά σταθερό).
-    """
-    secret = os.getenv("THRONOS_PDF_AES_KEY", "")
-    if not secret:
-        return b"\x00" * 32
-    return hashlib.sha256(secret.encode("utf-8")).digest()
-
-
-def _encrypt_payload(payload: dict) -> str:
-    raw = json.dumps(payload, sort_keys=True).encode("utf-8")
-    key = _get_aes_key()
-
-    cipher = AES.new(key, AES.MODE_EAX)
-    ciphertext, tag = cipher.encrypt_and_digest(raw)
-
-    blob = cipher.nonce + tag + ciphertext
-    return base64.b64encode(blob).decode("ascii")
-
-
-def _wrap_text(text: str, width: int):
-    words = text.split()
-    line = ""
-    for w in words:
-        if len(line) + len(w) + 1 <= width:
-            line += (" " + w) if line else w
-        else:
-            yield line
-            line = w
-    if line:
-        yield line
-
-
-# ───────────── main PDF creator ───────────── #
-
+# ─────────────────────────────────────────────────────────
+#  Δημιουργία PDF συμβολαίου
+# ─────────────────────────────────────────────────────────
 def create_secure_pdf_contract(
     btc_address: str,
     pledge_text: str,
@@ -147,103 +91,126 @@ def create_secure_pdf_contract(
     pledge_hash: str,
     height: int,
     send_seed: str,
-    output_dir: str = None,
-    node_label: str = "CPE_GATEWAY",
+    output_dir: str,
 ) -> str:
     """
-    Φτιάχνει πλήρες pledge PDF:
-      - header με BTC/THR/pledge
-      - encrypted payload (AES/EAX/base64)
-      - QR με node + THR + height
-      - stego εικόνα φωτιάς με κρυμμένο send_seed
-    Επιστρέφει ΜΟΝΟ το όνομα του PDF (π.χ. pledge_THR1234.pdf)
+    Δημιουργεί ένα secure PDF συμβόλαιο με:
+    - βασικές πληροφορίες block/διευθύνσεων
+    - AES/EAX κρυπτογραφημένο pledge (base64)
+    - QR code με payload του pledge/block
+    - stego fire image που κρύβει το send_seed
+
+    Επιστρέφει ΜΟΝΟ το filename (όχι full path), π.χ.
+    'pledge_<random>.pdf'
     """
-    if output_dir is None:
-        output_dir = _get_default_contracts_dir()
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1) Stego εικόνα
-    stego_path = _embed_seed_in_fire_image(thr_address, send_seed, output_dir)
-
-    # 2) Encrypted payload για απόδειξη
-    payload = {
-        "btc_address": btc_address,
-        "thr_address": thr_address,
-        "pledge_text": pledge_text,
-        "pledge_hash": pledge_hash,
-        "height": int(height),
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-        "node": node_label,
-    }
-    encrypted_b64 = _encrypt_payload(payload)
-
-    # 3) QR data
-    qr_data = json.dumps(
-        {
-            "node": node_label,
-            "thr_address": thr_address,
-            "height": int(height),
-        },
-        sort_keys=True,
-    )
-
-    qr_img = qrcode.make(qr_data)
-    qr_buf = BytesIO()
-    qr_img.save(qr_buf, format="PNG")
-    qr_bytes = qr_buf.getvalue()
-
-    # 4) PDF
-    pdf_name = f"pledge_{thr_address}.pdf"
+    # Random filename για privacy
+    pdf_name = f"pledge_{uuid.uuid4().hex}.pdf"
     pdf_path = os.path.join(output_dir, pdf_name)
 
+    # 1) Κρυπτογραφημένο pledge
+    encrypted_pledge_b64 = encrypt_pledge_text(pledge_text, send_seed)
+
+    # 2) Stego image με send_seed
+    stego_path = embed_seed_in_fire_image(send_seed, output_dir)
+
+    # 3) QR payload
+    qr_payload = {
+        "btc_address": btc_address,
+        "thr_address": thr_address,
+        "pledge_hash": pledge_hash,
+        "height": height,
+    }
+    qr_text = json_dumps_compact(qr_payload)
+
+    qr_img = qrcode.make(qr_text)
+    qr_buffer = io.BytesIO()
+    qr_img.save(qr_buffer, format="PNG")
+    qr_buffer.seek(0)
+    qr_reader = ImageReader(qr_buffer)
+
+    # 4) Δημιουργία PDF με reportlab
     c = canvas.Canvas(pdf_path, pagesize=A4)
     width, height_page = A4
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(1 * inch, height_page - 1 * inch, "THRONOS PLEDGE CONTRACT")
+    top_y = height_page - 40
 
-    c.setFont("Helvetica", 11)
-    c.drawString(1 * inch, height_page - 1.4 * inch, f"BTC Address: {btc_address}")
-    c.drawString(1 * inch, height_page - 1.7 * inch, f"THR Address: {thr_address}")
-    c.drawString(1 * inch, height_page - 2.0 * inch, f"Pledge Hash: {pledge_hash}")
-    c.drawString(1 * inch, height_page - 2.3 * inch, f"Node: {node_label}")
-    c.drawString(1 * inch, height_page - 2.6 * inch, f"Block Height at Pledge: {height}")
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(40, top_y, "Thronos Chain - Pledge Contract")
 
-    # Pledge text
-    text_obj = c.beginText(1 * inch, height_page - 3.1 * inch)
-    text_obj.setFont("Helvetica-Oblique", 11)
-    for line in _wrap_text(pledge_text, 90):
+    c.setFont("Helvetica", 10)
+    c.drawString(40, top_y - 20, f"BTC Address (KYC): {btc_address}")
+    c.drawString(40, top_y - 35, f"THR Address: {thr_address}")
+    c.drawString(40, top_y - 50, f"Pledge Hash: {pledge_hash}")
+    c.drawString(40, top_y - 65, f"Block Height (local): {height}")
+    c.drawString(40, top_y - 80, f"Created: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+    # Pledge text (plain)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(40, top_y - 110, "Pledge:")
+    c.setFont("Helvetica", 10)
+    text_obj = c.beginText(40, top_y - 125)
+    for line in wrap_text(pledge_text, 90):
         text_obj.textLine(line)
     c.drawText(text_obj)
 
-    # Encrypted payload
-    y_enc = height_page - 4.0 * inch
+    # Encrypted pledge base64
+    enc_y = top_y - 200
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(1 * inch, y_enc, "Encrypted (AES/EAX/base64) payload:")
+    c.drawString(40, enc_y, "Encrypted (AES/EAX/base64):")
     c.setFont("Helvetica", 8)
+    enc_text = c.beginText(40, enc_y - 15)
+    for line in wrap_text(encrypted_pledge_b64, 90):
+        enc_text.textLine(line)
+    c.drawText(enc_text)
 
-    for line in _wrap_text(encrypted_b64, 100):
-        y_enc -= 10
-        c.drawString(1 * inch, y_enc, line)
+    # QR code αριστερά
+    qr_size = 200
+    c.drawImage(qr_reader, 40, 100, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
 
-    y_enc -= 20
-    c.setFont("Helvetica-Oblique", 9)
-    c.drawString(
-        1 * inch,
-        y_enc,
-        "A hidden seed is embedded inside the fire symbol image. "
-        "Keep this PDF safe together with your personal phrase to recover your THR send secret.",
+    # Stego fire image δεξιά
+    fire_reader = ImageReader(stego_path)
+    c.drawImage(
+        fire_reader,
+        300,
+        80,
+        width=250,
+        height=250,
+        preserveAspectRatio=True,
+        mask="auto",
     )
-
-    # QR + stego image
-    qr_x = 1 * inch
-    qr_y = 0.8 * inch
-    c.drawInlineImage(qr_bytes, qr_x, qr_y, 2.0 * inch, 2.0 * inch)
-
-    c.drawInlineImage(stego_path, 3.5 * inch, qr_y, 3.0 * inch, 3.0 * inch)
 
     c.showPage()
     c.save()
 
     return pdf_name
+
+
+# ─────────────────────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────────────────────
+def wrap_text(text: str, width: int):
+    """
+    Σπάει ένα string σε γραμμές max 'width' chars για το PDF.
+    Πολύ απλό αστικό type wrap.
+    """
+    words = text.split()
+    if not words:
+        return []
+    lines = []
+    current = words[0]
+    for w in words[1:]:
+        if len(current) + 1 + len(w) <= width:
+            current += " " + w
+        else:
+            lines.append(current)
+            current = w
+    lines.append(current)
+    return lines
+
+
+def json_dumps_compact(obj) -> str:
+    import json
+    return json.dumps(obj, separators=(",", ":"))
