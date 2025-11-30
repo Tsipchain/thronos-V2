@@ -398,13 +398,12 @@ def admin_whitelist_list():
 @app.route("/admin/migrate_seeds", methods=["POST", "GET"])
 def admin_migrate_seeds():
     """
-    Migration για ΠΑΛΙΑ pledges (σαν αυτά που ήδη έκανες):
+    Migration για ΠΑΛΙΑ pledges:
 
     - βρίσκει entries χωρίς send_seed_hash
     - δημιουργεί send_seed, send_seed_hash, send_auth_hash
     - ξαναφτιάχνει PDF με stego fire + seed
     - επιστρέφει {thr_address, btc_address, send_seed, pdf_filename}
-      για να κρατήσεις τα νέα seeds.
 
     ΕΠΕΙΔΗ ΗΔΗ ΤΟ ΕΤΡΕΞΕΣ ΚΑΙ ΕΧΕΙΣ ΑΥΤΑ ΤΑ SEEDS, ΔΕΝ ΧΡΕΙΑΖΕΤΑΙ ΝΑ ΤΟ ΞΑΝΑΤΡΕΞΕΙΣ.
     """
