@@ -156,7 +156,7 @@ document.getElementById("pledgeForm").onsubmit = async (e) => {
     };
 
     result.innerHTML = `
-      <b>${msg.accepted}</b><br><br>
+      <b>${msg.accepted}</b><br>
       ${msg.addr}: <code>${data.thr_address}</code><br>
       ${msg.hash}: <code>${data.pledge_hash}</code><br><br>
       📄 <a class="pdf-link" href="/contracts/${data.pdf_filename}" target="_blank">${msg.pdf}</a><br>
