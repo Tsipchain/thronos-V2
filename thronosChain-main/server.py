@@ -6,6 +6,7 @@
 # - whitelist για free pledges
 # - ασφαλές THR send με auth_secret (seed) ανά THR address
 # - migration για ήδη υπάρχοντα pledges -> send_seed / send_auth_hash
+# - last_block.json για σταθερό viewer/home status
 
 import os
 import json
@@ -38,6 +39,9 @@ os.makedirs(DATA_DIR, exist_ok=True)
 LEDGER_FILE   = os.path.join(DATA_DIR, "ledger.json")
 CHAIN_FILE    = os.path.join(DATA_DIR, "phantom_tx_chain.json")
 PLEDGE_CHAIN  = os.path.join(DATA_DIR, "pledge_chain.json")
+
+# κρατάμε πάντα μια σύνοψη του τελευταίου block/tx
+LAST_BLOCK_FILE = os.path.join(DATA_DIR, "last_block.json")
 
 # Whitelist για free pledges (χωρίς BTC)
 WHITELIST_FILE = os.path.join(DATA_DIR, "free_pledge_whitelist.json")
@@ -76,6 +80,22 @@ def calculate_reward(height: int) -> float:
     return round(1.0 / (2 ** halvings), 6)
 
 
+def update_last_block(entry, is_block=True):
+    """
+    Γράφει μια μικρή σύνοψη του τελευταίου block/tx στο LAST_BLOCK_FILE,
+    ώστε ο viewer & το home να έχουν πάντα status ακόμη κι αν το chain
+    αδειάσει κάποτε.
+    """
+    summary = {
+        "height": entry.get("height"),
+        "block_hash": entry.get("block_hash") or entry.get("tx_id"),
+        "timestamp": entry.get("timestamp"),
+        "thr_address": entry.get("thr_address"),
+        "type": "block" if is_block else entry.get("type", "transfer"),
+    }
+    save_json(LAST_BLOCK_FILE, summary)
+
+
 # ─── BASIC PAGES ───────────────────────────────────
 @app.route("/")
 def home():
@@ -101,6 +121,38 @@ def wallet_page():
 @app.route("/send")
 def send_page():
     return render_template("send.html")
+
+
+# ─── STATUS APIs (για home + viewer) ───────────────
+@app.route("/chain")
+def get_chain():
+    return jsonify(load_json(CHAIN_FILE, [])), 200
+
+
+@app.route("/last_block")
+def api_last_block():
+    """
+    Επιστρέφει σύνοψη τελευταίου block/tx από last_block.json.
+    Αν δεν υπάρχει ακόμα, γυρνάει κενό dict.
+    """
+    summary = load_json(LAST_BLOCK_FILE, {})
+    return jsonify(summary), 200
+
+
+@app.route("/last_block_hash")
+def last_block_hash():
+    chain = load_json(CHAIN_FILE, [])
+    # μόνο κανονικά blocks (όχι transfers)
+    blocks = [b for b in chain if isinstance(b, dict) and b.get("reward") is not None]
+    if blocks:
+        last = blocks[-1]
+        return jsonify(
+            last_hash=last.get("block_hash", ""),
+            height=len(blocks) - 1,
+            timestamp=last.get("timestamp"),
+        )
+    else:
+        return jsonify(last_hash="0" * 64, height=-1, timestamp=None)
 
 
 # ─── PLEDGE FLOW ───────────────────────────────────
@@ -199,63 +251,7 @@ def pledge_submit():
     ), 200
 
 
-# ─── CHAIN + WALLET APIS ───────────────────────────
-@app.route("/chain")
-def get_chain():
-    return jsonify(load_json(CHAIN_FILE, [])), 200
-
-
-@app.route("/last_block_hash")
-def last_block_hash():
-    chain = load_json(CHAIN_FILE, [])
-    return jsonify(
-        last_hash=chain[-1]["block_hash"] if chain else "0" * 64
-    )
-
-
-@app.route("/submit_block", methods=["POST"])
-def submit_block():
-    data = request.get_json() or {}
-    chain = load_json(CHAIN_FILE, [])
-    h = len(chain)
-    r = calculate_reward(h)
-    fee = 0.005
-
-    data.setdefault(
-        "timestamp",
-        time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-    )
-    data.setdefault("block_hash", f"THR-{h}")
-    data["reward"] = r
-    data["pool_fee"] = fee
-    data["reward_to_miner"] = round(r - fee, 6)
-
-    pledges = load_json(PLEDGE_CHAIN, [])
-    match = next(
-        (p for p in pledges if p.get("thr_address") == data.get("thr_address")),
-        None,
-    )
-    if match:
-        data.update({
-            "miner_btc_address": match.get("btc_address"),
-            "pledge_text": match.get("pledge_text"),
-            "pledge_hash": match.get("pledge_hash"),
-        })
-
-    chain.append(data)
-    save_json(CHAIN_FILE, chain)
-
-    ledger = load_json(LEDGER_FILE, {})
-    miner = data["thr_address"]
-    ledger[miner] = round(
-        ledger.get(miner, 0.0) + data["reward_to_miner"],
-        6,
-    )
-    save_json(LEDGER_FILE, ledger)
-
-    return jsonify(status="ok", **data), 200
-
-
+# ─── WALLET APIS ───────────────────────────────────
 @app.route("/wallet_data/<thr_addr>")
 def wallet_data(thr_addr):
     ledger  = load_json(LEDGER_FILE, {})
@@ -346,9 +342,13 @@ def send_thr():
         "amount": round(amount, 6),
         "fee_burned": SEND_FEE,
         "tx_id": f"TX-{height}-{int(time.time())}",
+        "thr_address": from_thr,
     }
     chain.append(tx)
     save_json(CHAIN_FILE, chain)
+
+    # ενημερώνουμε last_block.json (εδώ τύπου transfer)
+    update_last_block(tx, is_block=False)
 
     return jsonify(
         status="ok",
@@ -404,8 +404,7 @@ def admin_migrate_seeds():
     - δημιουργεί send_seed, send_seed_hash, send_auth_hash
     - ξαναφτιάχνει PDF με stego fire + seed
     - επιστρέφει {thr_address, btc_address, send_seed, pdf_filename}
-
-    ΕΠΕΙΔΗ ΗΔΗ ΤΟ ΕΤΡΕΞΕΣ ΚΑΙ ΕΧΕΙΣ ΑΥΤΑ ΤΑ SEEDS, ΔΕΝ ΧΡΕΙΑΖΕΤΑΙ ΝΑ ΤΟ ΞΑΝΑΤΡΕΞΕΙΣ.
+      για να κρατήσεις τα νέα seeds.
     """
 
     payload = request.get_json() or {}
@@ -458,6 +457,41 @@ def admin_migrate_seeds():
 
 
 # ─── BACKGROUND MINTER ─────────────────────────────
+def submit_mining_block_for_pledge(thr_addr):
+    """
+    Μικρό helper ώστε να βάζουμε σωστό height + last_block update
+    όταν ο background miner κάνει auto-mint blocks για τα pledges.
+    """
+    chain = load_json(CHAIN_FILE, [])
+    height = len(chain)
+    r   = calculate_reward(height)
+    fee = 0.005
+    to_miner = round(r - fee, 6)
+
+    block = {
+        "thr_address": thr_addr,
+        "timestamp": time.strftime(
+            "%Y-%m-%d %H:%M:%S UTC",
+            time.gmtime(),
+        ),
+        "block_hash": f"THR-{height}",
+        "reward": r,
+        "pool_fee": fee,
+        "reward_to_miner": to_miner,
+        "height": height,
+    }
+
+    chain.append(block)
+    save_json(CHAIN_FILE, chain)
+
+    ledger = load_json(LEDGER_FILE, {})
+    ledger[thr_addr] = round(ledger.get(thr_addr, 0.0) + to_miner, 6)
+    save_json(LEDGER_FILE, ledger)
+
+    update_last_block(block, is_block=True)
+    print(f"⛏️ Auto-mined block #{height} for {thr_addr}: +{to_miner} THR")
+
+
 def mint_first_blocks():
     pledges = load_json(PLEDGE_CHAIN, [])
     chain   = load_json(CHAIN_FILE, [])
@@ -466,39 +500,12 @@ def mint_first_blocks():
         for b in chain
         if isinstance(b, dict) and b.get("thr_address")
     }
-    height  = len(chain)
 
     for p in pledges:
         thr = p["thr_address"]
         if thr in seen:
             continue
-
-        r   = calculate_reward(height)
-        fee = 0.005
-        to_miner = round(r - fee, 6)
-
-        block = {
-            "thr_address": thr,
-            "timestamp": time.strftime(
-                "%Y-%m-%d %H:%M:%S UTC",
-                time.gmtime(),
-            ),
-            "block_hash": f"THR-{height}",
-            "reward": r,
-            "pool_fee": fee,
-            "reward_to_miner": to_miner,
-        }
-
-        try:
-            port = int(os.getenv("PORT", 3333))
-            url  = f"http://localhost:{port}/submit_block"
-            requests.post(url, json=block, timeout=5).raise_for_status()
-            chain = load_json(CHAIN_FILE, [])
-            height = len(chain)
-            seen.add(thr)
-            print(f"⛏️ Mined block #{height} for {thr}: +{to_miner} THR")
-        except Exception as e:
-            print(f"❌ Failed mining for {thr}:", e)
+        submit_mining_block_for_pledge(thr)
 
 
 scheduler = BackgroundScheduler(daemon=True)
