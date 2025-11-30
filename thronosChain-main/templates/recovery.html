@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Recover Thronos Seed</title>
+</head>
+<body>
+    <h1>Seed Recovery</h1>
+    <form action="/recover_seed" method="POST" enctype="multipart/form-data">
+        <label for="fileInput">Upload PIC OF THE FIRE (Image or PDF):</label><br>
+        <input type="file" id="fileInput" name="firePic" accept=".png,.jpg,.jpeg,.pdf" required><br><br>
+        <label for="passphrase">Recovery Passphrase (if any):</label><br>
+        <input type="text" id="passphrase" name="passphrase" placeholder="Enter passphrase"><br><br>
+        <button type="submit">Recover Seed</button>
+    </form>
+
+    {% if recovered_seed %}
+    <h3>Recovered Seed:</h3>
+    <p>{{ recovered_seed }}</p>
+    {% endif %}
+
+    {% if recovered_secret %}
+    <h3>Reconstructed Secret:</h3>
+    <p>{{ recovered_secret }}</p>
+    {% endif %}
+
+    {% if error %}
+    <p style="color:red;">Error: {{ error }}</p>
+    {% endif %}
+</body>
+</html>
