@@ -1,31 +1,153 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="el">
 <head>
     <meta charset="UTF-8">
-    <title>Recover Thronos Seed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thronos Chain - Recovery</title>
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; background: #111; color: #0f0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; border: 1px solid #0f0; padding: 20px; }
+        h1 { text-align: center; border-bottom: 1px solid #0f0; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="file"] { width: 100%; padding: 10px; background: #222; border: 1px solid #0f0; color: #fff; }
+        button { width: 100%; padding: 10px; background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #0c0; }
+        #result { margin-top: 20px; padding: 10px; border: 1px dashed #0f0; display: none; word-wrap: break-word; }
+        .nav { text-align: center; margin-bottom: 20px; }
+        .nav a { color: #0f0; margin: 0 10px; text-decoration: none; }
+        .nav a:hover { text-decoration: underline; }
+        .lang-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #222;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .lang-en { display: none; }
+    </style>
 </head>
 <body>
-    <h1>Seed Recovery</h1>
-    <form action="/recover_seed" method="POST" enctype="multipart/form-data">
-        <label for="fileInput">Upload PIC OF THE FIRE (Image or PDF):</label><br>
-        <input type="file" id="fileInput" name="firePic" accept=".png,.jpg,.jpeg,.pdf" required><br><br>
-        <label for="passphrase">Recovery Passphrase (if any):</label><br>
-        <input type="text" id="passphrase" name="passphrase" placeholder="Enter passphrase"><br><br>
-        <button type="submit">Recover Seed</button>
-    </form>
+    <button class="lang-toggle" onclick="toggleLanguage()">GR | EN</button>
 
-    {% if recovered_seed %}
-    <h3>Recovered Seed:</h3>
-    <p>{{ recovered_seed }}</p>
-    {% endif %}
+    <div class="nav">
+        <a href="/"> <span class="lang-el">Αρχική</span><span class="lang-en">Home</span></a>
+        <a href="/pledge"> <span class="lang-el">Δέσμευση</span><span class="lang-en">Pledge</span></a>
+        <a href="/viewer"> <span class="lang-el">Εξερευνητής</span><span class="lang-en">Viewer</span></a>
+        <a href="/wallet"> <span class="lang-el">Πορτοφόλι</span><span class="lang-en">Wallet</span></a>
+        <a href="/send"> <span class="lang-el">Αποστολή</span><span class="lang-en">Send</span></a>
+        <a href="/recovery"> <span class="lang-el">Ανάκτηση</span><span class="lang-en">Recovery</span></a>
+    </div>
 
-    {% if recovered_secret %}
-    <h3>Reconstructed Secret:</h3>
-    <p>{{ recovered_secret }}</p>
-    {% endif %}
+    <div class="container">
+        <h1><span class="lang-el">ΠΡΩΤΟΚΟΛΛΟ ΑΝΑΚΤΗΣΗΣ</span><span class="lang-en">RECOVERY PROTOCOL</span></h1>
+        <p>
+            <span class="lang-el">Ανεβάστε το Συμβόλαιο Thronos (PDF ή Εικόνα Stego) για να ανακτήσετε τα διαπιστευτήριά σας.</span>
+            <span class="lang-en">Upload your Thronos Contract (PDF or Stego-Image) to recover your credentials.</span>
+        </p>
+        
+        <div class="form-group">
+            <label for="contractFile"><span class="lang-el">Επιλογή Αρχείου Συμβολαίου:</span><span class="lang-en">Select Contract File:</span></label>
+            <input type="file" id="contractFile" accept=".png,.jpg,.jpeg,.pdf">
+        </div>
+        
+        <button onclick="recover()"><span class="lang-el">ΕΚΚΙΝΗΣΗ ΑΝΑΚΤΗΣΗΣ</span><span class="lang-en">INITIATE RECOVERY</span></button>
+        
+        <div id="result"></div>
+    </div>
 
-    {% if error %}
-    <p style="color:red;">Error: {{ error }}</p>
-    {% endif %}
+    <script>
+        function toggleLanguage() {
+            const currentLang = localStorage.getItem('lang') || 'el';
+            const newLang = currentLang === 'el' ? 'en' : 'el';
+            setLanguage(newLang);
+        }
+
+        function setLanguage(lang) {
+            localStorage.setItem('lang', lang);
+            const elElements = document.querySelectorAll('.lang-el');
+            const enElements = document.querySelectorAll('.lang-en');
+            
+            if (lang === 'el') {
+                elElements.forEach(el => el.style.display = 'inline');
+                enElements.forEach(el => el.style.display = 'none');
+            } else {
+                elElements.forEach(el => el.style.display = 'none');
+                enElements.forEach(el => el.style.display = 'inline');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedLang = localStorage.getItem('lang') || 'el';
+            setLanguage(savedLang);
+        });
+
+        async function recover() {
+            const fileInput = document.getElementById('contractFile');
+            const resultDiv = document.getElementById('result');
+            const lang = localStorage.getItem('lang') || 'el';
+            
+            const messages = {
+                el: {
+                    selectFile: "Παρακαλώ επιλέξτε ένα αρχείο πρώτα.",
+                    scanning: "Σάρωση στεγανoγραφικών επιπέδων...",
+                    success: "Επιτυχής Ανάκτηση",
+                    seedFound: "ΒΡΕΘΗΚΕ SEED:",
+                    failed: "Αποτυχία Ανάκτησης",
+                    unknownError: "Άγνωστο σφάλμα",
+                    systemError: "Σφάλμα Συστήματος"
+                },
+                en: {
+                    selectFile: "Please select a file first.",
+                    scanning: "Scanning steganographic layers...",
+                    success: "Recovery Successful",
+                    seedFound: "SEED FOUND:",
+                    failed: "Recovery Failed",
+                    unknownError: "Unknown error",
+                    systemError: "System Error"
+                }
+            };
+
+            const msg = messages[lang];
+            
+            if (!fileInput.files[0]) {
+                alert(msg.selectFile);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = msg.scanning;
+
+            try {
+                const response = await fetch('/recover_submit', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let html = `<h3>${msg.success}</h3>`;
+                    if (data.payload) {
+                        html += "<pre>" + JSON.stringify(data.payload, null, 2) + "</pre>";
+                        if (data.payload.send_seed) {
+                            html += `<p style='color:yellow'><strong>${msg.seedFound}</strong> ` + data.payload.send_seed + "</p>";
+                        }
+                    }
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<h3 style='color:red'>${msg.failed}</h3><p>` + (data.error || msg.unknownError) + "</p>";
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<h3 style='color:red'>${msg.systemError}</h3><p>` + error.message + "</p>";
+            }
+        }
+    </script>
 </body>
 </html>
