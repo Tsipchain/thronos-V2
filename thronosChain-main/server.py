@@ -521,6 +521,88 @@ def admin_migrate_seeds():
     return jsonify(migrated=changed), 200
 
 
+# ─── MINING ENDPOINT ───────────────────────────────
+@app.route("/submit_block", methods=["POST"])
+def submit_block():
+    """
+    Endpoint for miners to submit their work.
+    Expects: {
+        "thr_address": "...",
+        "nonce": 12345,
+        "pow_hash": "00000...",
+        "prev_hash": "..."
+    }
+    """
+    data = request.get_json() or {}
+    thr_address = data.get("thr_address")
+    nonce = data.get("nonce")
+    pow_hash = data.get("pow_hash")
+    prev_hash = data.get("prev_hash")
+    
+    if not all([thr_address, nonce is not None, pow_hash, prev_hash]):
+        return jsonify(error="Missing mining data"), 400
+        
+    # 1. Verify last hash matches current chain tip
+    chain = load_json(CHAIN_FILE, [])
+    # Get last block (filter out transfers if needed, or just take last entry)
+    # For simplicity, we check against what the miner claims is prev_hash
+    # In production, we must strictly check against server's actual last block hash
+    
+    blocks = [b for b in chain if isinstance(b, dict) and b.get("reward") is not None]
+    if blocks:
+        server_last_hash = blocks[-1].get("block_hash", "")
+    else:
+        server_last_hash = "0" * 64
+        
+    if prev_hash != server_last_hash:
+        return jsonify(error="Stale block (prev_hash mismatch)"), 400
+        
+    # 2. Verify PoW
+    # Re-calculate hash: sha256(prev_hash + thr_address + nonce)
+    nonce_str = str(nonce).encode()
+    check_data = (prev_hash + thr_address).encode() + nonce_str
+    check_hash = hashlib.sha256(check_data).hexdigest()
+    
+    if check_hash != pow_hash:
+        return jsonify(error="Invalid hash calculation"), 400
+        
+    # 3. Verify Difficulty
+    # Hardcoded difficulty 5 for now (must match miner)
+    DIFFICULTY = 5
+    if not check_hash.startswith("0" * DIFFICULTY):
+        return jsonify(error=f"Insufficient difficulty (needs {DIFFICULTY} zeros)"), 400
+        
+    # 4. Reward Miner
+    height = len(chain)
+    reward = calculate_reward(height)
+    
+    new_block = {
+        "thr_address": thr_address,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "block_hash": pow_hash,
+        "prev_hash": prev_hash,
+        "nonce": nonce,
+        "reward": reward,
+        "height": height,
+        "type": "block"
+    }
+    
+    chain.append(new_block)
+    save_json(CHAIN_FILE, chain)
+    
+    # Update Ledger
+    ledger = load_json(LEDGER_FILE, {})
+    ledger[thr_address] = round(ledger.get(thr_address, 0.0) + reward, 6)
+    save_json(LEDGER_FILE, ledger)
+    
+    # Update Last Block Summary
+    update_last_block(new_block, is_block=True)
+    
+    print(f"⛏️  Miner {thr_address} found block #{height}! Reward: {reward} THR")
+    
+    return jsonify(status="accepted", height=height, reward=reward), 200
+
+
 # ─── BACKGROUND MINTER ─────────────────────────────
 def submit_mining_block_for_pledge(thr_addr):
     """
