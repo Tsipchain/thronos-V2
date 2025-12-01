@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -24,40 +23,117 @@
     .highlight {
       color: #ff0;
     }
+    .lang-toggle {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #222;
+        color: #0f0;
+        border: 1px solid #0f0;
+        padding: 5px 10px;
+        cursor: pointer;
+    }
+    .lang-en { display: none; }
   </style>
 </head>
 <body>
 
+<button class="lang-toggle" onclick="toggleLanguage()">GR | EN</button>
+
 <div style="background:#000;padding:10px;border-bottom:1px solid #0f0;text-align:center;">
-  <a href="/" style="color:#0f0;margin:10px;">🏠 Home</a>
-  <a href="/pledge" style="color:#0f0;margin:10px;">🔥 Pledge</a>
-  <a href="/viewer" style="color:#0f0;margin:10px;">📦 Viewer</a>
-  <a href="/send" style="color:#0f0;margin:10px;">💸 Send</a>
-  <a href="/wallet" style="color:#0f0;margin:10px;">👛 Wallet</a>
-  <a href="/docs" style="color:#0f0;margin:10px;">📚 Docs</a>
+  <a href="/" style="color:#0f0;margin:10px;">🏠 <span class="lang-el">Αρχική</span><span class="lang-en">Home</span></a>
+  <a href="/pledge" style="color:#0f0;margin:10px;">🔥 <span class="lang-el">Δέσμευση</span><span class="lang-en">Pledge</span></a>
+  <a href="/viewer" style="color:#0f0;margin:10px;">📦 <span class="lang-el">Εξερευνητής</span><span class="lang-en">Viewer</span></a>
+  <a href="/send" style="color:#0f0;margin:10px;">💸 <span class="lang-el">Αποστολή</span><span class="lang-en">Send</span></a>
+  <a href="/wallet" style="color:#0f0;margin:10px;">👛 <span class="lang-el">Πορτοφόλι</span><span class="lang-en">Wallet</span></a>
+  <a href="/recovery" style="color:#0f0;margin:10px;">🛠️ <span class="lang-el">Ανάκτηση</span><span class="lang-en">Recovery</span></a>
 </div>
 
 
-<h1>🔥 Welcome to the Thronos Network</h1>
-<p>A blockchain of resistance. A pledge to the unburnable.</p>
+<h1>🔥 <span class="lang-el">Καλώς ήρθατε στο Δίκτυο Thronos</span><span class="lang-en">Welcome to the Thronos Network</span></h1>
+<p>
+    <span class="lang-el">Ένα blockchain αντίστασης. Μια δέσμευση στο άκαυστο.</span>
+    <span class="lang-en">A blockchain of resistance. A pledge to the unburnable.</span>
+</p>
 
 <div class="stats">
-  <h2>📈 Live Network Stats</h2>
-  <pre id="chainInfo">Loading chain data...</pre>
+  <h2>📈 <span class="lang-el">Ζωντανά Στατιστικά Δικτύου</span><span class="lang-en">Live Network Stats</span></h2>
+  <pre id="chainInfo"><span class="lang-el">Φόρτωση δεδομένων αλυσίδας...</span><span class="lang-en">Loading chain data...</span></pre>
 </div>
 
 <script>
+function toggleLanguage() {
+    const currentLang = localStorage.getItem('lang') || 'el';
+    const newLang = currentLang === 'el' ? 'en' : 'el';
+    setLanguage(newLang);
+}
+
+function setLanguage(lang) {
+    localStorage.setItem('lang', lang);
+    const elElements = document.querySelectorAll('.lang-el');
+    const enElements = document.querySelectorAll('.lang-en');
+    
+    if (lang === 'el') {
+        elElements.forEach(el => el.style.display = 'inline');
+        enElements.forEach(el => el.style.display = 'none');
+    } else {
+        elElements.forEach(el => el.style.display = 'none');
+        enElements.forEach(el => el.style.display = 'inline');
+    }
+}
+
+// Initialize language
+document.addEventListener('DOMContentLoaded', () => {
+    const savedLang = localStorage.getItem('lang') || 'el';
+    setLanguage(savedLang);
+});
+
 fetch("/chain")
   .then(res => res.json())
   .then(data => {
     const blocks = data || [];
     const last = blocks[blocks.length - 1] || {};
-    const html = `
-    Total Blocks: <span class="highlight">${blocks.length}</span>\n
-    Last Block Hash: ${last.block_hash || "N/A"}\n
-    Last Miner: ${last.miner_btc_address || "N/A"}\n
-    Timestamp: ${last.timestamp || "N/A"}`;
-    document.getElementById("chainInfo").innerHTML = html;
+    const currentLang = localStorage.getItem('lang') || 'el';
+    
+    const labels = {
+        el: {
+            total: "Σύνολο Blocks",
+            lastHash: "Hash Τελευταίου Block",
+            lastMiner: "Τελευταίος Miner",
+            timestamp: "Χρονική Σήμανση"
+        },
+        en: {
+            total: "Total Blocks",
+            lastHash: "Last Block Hash",
+            lastMiner: "Last Miner",
+            timestamp: "Timestamp"
+        }
+    };
+
+    // We update the innerHTML dynamically, so we need to handle lang switch for this dynamic content too if we want it perfect, 
+    // but for simplicity, we will just render based on current lang load. 
+    // A better approach for dynamic content is to have spans with classes.
+    
+    const renderStats = () => {
+        const lang = localStorage.getItem('lang') || 'el';
+        const l = labels[lang];
+        const html = `
+        ${l.total}: <span class="highlight">${blocks.length}</span>\n
+        ${l.lastHash}: ${last.block_hash || "N/A"}\n
+        ${l.lastMiner}: ${last.miner_btc_address || "N/A"}\n
+        ${l.timestamp}: ${last.timestamp || "N/A"}`;
+        document.getElementById("chainInfo").innerHTML = html;
+    };
+
+    renderStats();
+    
+    // Hook into the toggle function to re-render stats
+    const originalSetLanguage = setLanguage;
+    window.setLanguage = function(lang) {
+        originalSetLanguage(lang);
+        renderStats();
+    };
+
   })
   .catch(err => {
     document.getElementById("chainInfo").innerText = "Failed to load chain data.";
