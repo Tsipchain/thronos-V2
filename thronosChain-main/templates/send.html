@@ -75,61 +75,103 @@
       font-size: 11px;
       color: #cccccc;
     }
+    .lang-toggle {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #222;
+        color: #00ff66;
+        border: 1px solid #00ff66;
+        padding: 5px 10px;
+        cursor: pointer;
+    }
+    .lang-en { display: none; }
   </style>
 </head>
 <body>
 
+<button class="lang-toggle" onclick="toggleLanguage()">GR | EN</button>
+
 <div class="nav">
-  <a href="{{ url_for('home') }}">🏠 Home</a>
-  <a href="{{ url_for('pledge_form') }}">🔥 Pledge</a>
-  <a href="{{ url_for('viewer') }}">🧱 Viewer</a>
-  <a href="{{ url_for('wallet_page') }}">💰 Wallet</a>
-  <a href="{{ url_for('send_page') }}">📤 Send</a>
+  <a href="/">🏠 <span class="lang-el">Αρχική</span><span class="lang-en">Home</span></a>
+  <a href="/pledge">🔥 <span class="lang-el">Δέσμευση</span><span class="lang-en">Pledge</span></a>
+  <a href="/viewer">🧱 <span class="lang-el">Εξερευνητής</span><span class="lang-en">Viewer</span></a>
+  <a href="/wallet">💰 <span class="lang-el">Πορτοφόλι</span><span class="lang-en">Wallet</span></a>
+  <a href="/send">📤 <span class="lang-el">Αποστολή</span><span class="lang-en">Send</span></a>
+  <a href="/recovery">🛠️ <span class="lang-el">Ανάκτηση</span><span class="lang-en">Recovery</span></a>
 </div>
 
 <div class="container">
-  <h1>📤 Send THR</h1>
+  <h1>📤 <span class="lang-el">Αποστολή THR</span><span class="lang-en">Send THR</span></h1>
 
   <div class="row">
     <div class="col">
-      <label for="from_thr">From THR Address</label>
+      <label for="from_thr"><span class="lang-el">Από Διεύθυνση THR</span><span class="lang-en">From THR Address</span></label>
       <input id="from_thr" placeholder="π.χ. THR1764..." />
 
-      <label for="to_thr">To THR Address</label>
+      <label for="to_thr"><span class="lang-el">Προς Διεύθυνση THR</span><span class="lang-en">To THR Address</span></label>
       <input id="to_thr" placeholder="Recipient THR address" />
 
-      <label for="amount">Amount (THR)</label>
+      <label for="amount"><span class="lang-el">Ποσό (THR)</span><span class="lang-en">Amount (THR)</span></label>
       <input id="amount" type="number" step="0.000001" min="0" value="0.1" />
 
       <label for="auth_secret">
-        Send Secret (auth_secret)
+        <span class="lang-el">Μυστικό Αποστολής (auth_secret)</span><span class="lang-en">Send Secret (auth_secret)</span>
       </label>
       <input id="auth_secret"
              placeholder="Μυστικό που πήρες με το Pledge (send_secret)" />
 
       <div class="small-note">
-        * Fee: {{ "%.4f"|format(0.0015) }} THR καίγεται σε κάθε αποστολή.
+        <span class="lang-el">* Προμήθεια: 0.0015 THR καίγεται σε κάθε αποστολή.</span>
+        <span class="lang-en">* Fee: 0.0015 THR burned per transaction.</span>
       </div>
 
-      <button onclick="doSend()">Send THR</button>
-      <button onclick="loadBalance()">Load Balance</button>
+      <button onclick="doSend()"><span class="lang-el">Αποστολή THR</span><span class="lang-en">Send THR</span></button>
+      <button onclick="loadBalance()"><span class="lang-el">Φόρτωση Υπολοίπου</span><span class="lang-en">Load Balance</span></button>
     </div>
 
     <div class="col">
-      <label>Balance & History (JSON)</label>
+      <label><span class="lang-el">Υπόλοιπο & Ιστορικό (JSON)</span><span class="lang-en">Balance & History (JSON)</span></label>
       <pre id="walletBox">{}</pre>
 
-      <label>Send Result</label>
+      <label><span class="lang-el">Αποτέλεσμα Αποστολής</span><span class="lang-en">Send Result</span></label>
       <pre id="sendResult">{}</pre>
     </div>
   </div>
 </div>
 
 <script>
+function toggleLanguage() {
+    const currentLang = localStorage.getItem('lang') || 'el';
+    const newLang = currentLang === 'el' ? 'en' : 'el';
+    setLanguage(newLang);
+}
+
+function setLanguage(lang) {
+    localStorage.setItem('lang', lang);
+    const elElements = document.querySelectorAll('.lang-el');
+    const enElements = document.querySelectorAll('.lang-en');
+    
+    if (lang === 'el') {
+        elElements.forEach(el => el.style.display = 'inline');
+        enElements.forEach(el => el.style.display = 'none');
+    } else {
+        elElements.forEach(el => el.style.display = 'none');
+        enElements.forEach(el => el.style.display = 'inline');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const savedLang = localStorage.getItem('lang') || 'el';
+    setLanguage(savedLang);
+});
+
 async function loadBalance() {
   const thr = document.getElementById('from_thr').value.trim();
+  const lang = localStorage.getItem('lang') || 'el';
+  
   if (!thr) {
-    alert('Βάλε THR address πρώτα');
+    alert(lang === 'el' ? 'Βάλε THR address πρώτα' : 'Enter THR address first');
     return;
   }
   try {
@@ -139,7 +181,7 @@ async function loadBalance() {
       JSON.stringify(data, null, 2);
   } catch (e) {
     document.getElementById('walletBox').textContent =
-      'Error loading wallet: ' + e;
+      (lang === 'el' ? 'Σφάλμα φόρτωσης πορτοφολιού: ' : 'Error loading wallet: ') + e;
   }
 }
 
@@ -148,13 +190,28 @@ async function doSend() {
   const to_thr      = document.getElementById('to_thr').value.trim();
   const amount      = document.getElementById('amount').value;
   const auth_secret = document.getElementById('auth_secret').value.trim();
+  const lang = localStorage.getItem('lang') || 'el';
+
+  const msg = {
+      el: {
+          missingAddr: 'Συμπλήρωσε FROM και TO THR address',
+          missingSecret: 'Χρειάζεται το send_secret που πήρες με το Pledge',
+          error: 'Σφάλμα αποστολής: '
+      },
+      en: {
+          missingAddr: 'Fill in FROM and TO THR address',
+          missingSecret: 'Send_secret from Pledge is required',
+          error: 'Error sending: '
+      }
+  };
+  const m = msg[lang];
 
   if (!from_thr || !to_thr) {
-    alert('Συμπλήρωσε FROM και TO THR address');
+    alert(m.missingAddr);
     return;
   }
   if (!auth_secret) {
-    alert('Χρειάζεται το send_secret που πήρες με το Pledge');
+    alert(m.missingSecret);
     return;
   }
 
@@ -172,7 +229,7 @@ async function doSend() {
     loadBalance();
   } catch (e) {
     document.getElementById('sendResult').textContent =
-      'Error sending: ' + e;
+      m.error + e;
   }
 }
 </script>
